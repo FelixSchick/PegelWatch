@@ -17,6 +17,7 @@ struct DeveloperView: View {
         } label: {
             Text("send test notication")
         }
+    
     }
 }
 

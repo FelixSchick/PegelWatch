@@ -39,6 +39,20 @@ struct WatchedStation: Identifiable, Codable, Hashable {
         longname.isEmpty ? shortname : longname.capitalized
     }
     
+    // In WatchedStation.swift — add one new property:
+    var customAlarms: [CustomAlarm] = []
+
+    // Computed: all alarms sorted by threshold (used by chart and notifications)
+    var sortedCustomAlarms: [CustomAlarm] {
+        customAlarms.sorted { $0.threshold < $1.threshold }
+    }
+
+    // Computed: the highest custom alarm that has been crossed
+    var triggeredCustomAlarm: CustomAlarm? {
+        guard let value = lastValue else { return nil }
+        return sortedCustomAlarms.last { value >= $0.threshold }
+    }
+    
 
     var alarmLevel: AlarmLevel {
         guard let value = lastValue, let threshold = alarmThreshold, threshold > 0 else {

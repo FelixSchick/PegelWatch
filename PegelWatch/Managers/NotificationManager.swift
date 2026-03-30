@@ -47,6 +47,20 @@ class NotificationManager {
         }
     }
     
+    func sendCustomAlarmNotification(for station: WatchedStation,
+                                      alarm: CustomAlarm,
+                                      currentValue: Double) {
+        let content = UNMutableNotificationContent()
+        content.title = "⚠️ \(alarm.name)"
+        content.body  = "\(station.displayName) (\(station.waterDisplayName)): " +
+                        "\(Int(currentValue)) cm – Schwelle \(Int(alarm.threshold)) cm überschritten."
+        content.sound = .default
+
+        let id = "custom-\(station.id)-\(alarm.id.uuidString)"
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+    
     func sendTestAlarmNotification() {
         let content = UNMutableNotificationContent()
         content.title = "⚠️ Test"

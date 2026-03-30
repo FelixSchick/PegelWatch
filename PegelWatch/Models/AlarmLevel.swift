@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum AlarmLevel: String, Codable, CaseIterable {
+public enum AlarmLevel: String, Codable, CaseIterable {
     case normal
     case warning
     case danger

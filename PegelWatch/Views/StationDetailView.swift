@@ -22,6 +22,9 @@ struct StationDetailView: View {
     @State private var levelHistory: [(timestamp: Date, value: Double)] = []
     @State private var isLoadingHistory = false
     @State private var historyError: String?
+    
+    @State private var showAddAlarm: Bool = false
+    @State private var alarmToEdit: CustomAlarm? = nil
 
     // Computed live version from store
     private var liveStation: WatchedStation {
@@ -35,6 +38,7 @@ struct StationDetailView: View {
                 historyChart
                 metaInfo
                 alarmSection
+                customAlarmsSection
                 removeButton
             }
             .padding()
@@ -169,7 +173,17 @@ struct StationDetailView: View {
                     Toggle("", isOn: Binding(
                         get: { liveStation.alarmEnabled },
                         set: { store.setAlarmEnabled(id: station.id, enabled: $0) }
-                    ))
+                    )).onChange(of: liveStation.alarmEnabled) {
+                        if liveStation.alarmEnabled == false {
+                            Task {
+                                await LiveActivityManager.shared.end(for: liveStation)
+                            }
+                        } else {
+                            Task {
+                                await LiveActivityManager.shared.update(station: liveStation)
+                            }
+                        }
+                    }
                     .labelsHidden()
                 }
                 .padding(.horizontal, 16)
@@ -199,7 +213,7 @@ struct StationDetailView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                }
+                }.disabled(!liveStation.alarmEnabled)
                 
                 Divider().padding(.leading)
                 
@@ -214,10 +228,12 @@ struct StationDetailView: View {
                             }
                         }
                     ))
+                    .foregroundStyle(.primary)
                     .labelsHidden()
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .disabled(!liveStation.alarmEnabled)
                 
                 if liveStation.enableCustomThreshold {
                     
@@ -235,7 +251,8 @@ struct StationDetailView: View {
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .opacity
                         )
-                    )
+                    ).foregroundStyle(.primary)
+                        .disabled(!liveStation.alarmEnabled)
                     
                     
                 }
@@ -256,7 +273,9 @@ struct StationDetailView: View {
         HStack {
             if alarmLevel == .warning {
                 Label("Warnschwelle", systemImage: "exclamationmark.circle")
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(
+                        (liveStation.alarmEnabled) ? .yellow : .white
+                    )
                 Spacer()
                 if let threshold = liveStation.alarmThresholdNormalLevel {
                     Text("\(Int(threshold)) cm")
@@ -267,7 +286,9 @@ struct StationDetailView: View {
                 }
             } else if alarmLevel == .critical {
                 Label("Kritischeschwelle", systemImage: "exclamationmark.circle")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(
+                        (liveStation.alarmEnabled) ? .red : .white
+                    )
                 Spacer()
                 if let threshold = liveStation.alarmThresholdDangerLevel {
                     Text("\(Int(threshold)) cm")
@@ -278,12 +299,10 @@ struct StationDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            
-            
-        
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .disabled(!liveStation.alarmEnabled)
     }
     
      
@@ -435,6 +454,97 @@ struct StationDetailView: View {
         .presentationDetents([.large])
     }
     
+    // MARK: - Custom Alarm
+    private var customAlarmsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+
+            // Header row
+            HStack {
+                Label("Eigene Alarme", systemImage: "bell.badge")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    showAddAlarm = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            if liveStation.sortedCustomAlarms.isEmpty {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "bell.slash")
+                            .font(.title2)
+                            .foregroundStyle(.quaternary)
+                        Text("Noch keine eigenen Alarme")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 20)
+            } else {
+                ForEach(liveStation.sortedCustomAlarms) { alarm in
+                    Divider().padding(.leading)
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(alarm.color)
+                            .frame(width: 10, height: 10)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(alarm.name)
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(Int(alarm.threshold)) cm")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        // Active indicator
+                        if let value = liveStation.lastValue, value >= alarm.threshold {
+                            Text("Aktiv")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(alarm.color)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(alarm.color.opacity(0.15), in: Capsule())
+                        }
+                        // Edit button
+                        Button {
+                            alarmToEdit = alarm
+                        } label: {
+                            Image(systemName: "pencil.circle")
+                                .foregroundStyle(.secondary)
+                        }
+                        // Delete button
+                        Button(role: .destructive) {
+                            store.removeCustomAlarm(id: alarm.id, from: liveStation.id)
+                        } label: {
+                            Image(systemName: "trash.circle")
+                                .foregroundStyle(.red.opacity(0.7))
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .sheet(isPresented: $showAddAlarm) {
+            CustomAlarmEditorView(stationID: liveStation.id) { alarm in
+                store.addCustomAlarm(alarm, to: liveStation.id)
+            }
+        }
+        .sheet(item: $alarmToEdit) { alarm in
+            CustomAlarmEditorView(stationID: liveStation.id, existing: alarm) { updated in
+                store.updateCustomAlarm(updated, in: liveStation.id)
+            }
+        }
+    }
+    
     // MARK: - History Chart
     
     private var historyChart: some View {
@@ -467,6 +577,17 @@ struct StationDetailView: View {
             })
         }
 
+        @ViewBuilder
+        private func alarmLabel(text: String, color: Color) -> some View {
+            Text(text)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                .fixedSize()
+        }
+        
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
 
@@ -502,6 +623,7 @@ struct StationDetailView: View {
 
                 // Chart
                 Chart {
+                    // ── Water-level area + line ──────────────────────────────
                     ForEach(visibleHistory, id: \.timestamp) { point in
                         AreaMark(
                             x: .value("Zeit", point.timestamp),
@@ -509,11 +631,11 @@ struct StationDetailView: View {
                         )
                         .foregroundStyle(
                             .linearGradient(
-                                colors: [alarmColor.opacity(0.3), .clear],
-                                startPoint: .top,
-                                endPoint: .bottom
+                                colors: [alarmColor.opacity(0.25), .clear],
+                                startPoint: .top, endPoint: .bottom
                             )
                         )
+                        .interpolationMethod(.catmullRom)
 
                         LineMark(
                             x: .value("Zeit", point.timestamp),
@@ -521,49 +643,84 @@ struct StationDetailView: View {
                         )
                         .foregroundStyle(alarmColor)
                         .lineStyle(StrokeStyle(lineWidth: 2))
+                        .interpolationMethod(.catmullRom)
+                        // Series name appears in the legend
+                        .foregroundStyle(by: .value("Reihe", "Wasserstand"))
                     }
 
+                    // ── Main alarm threshold ─────────────────────────────────
                     if let threshold {
                         RuleMark(y: .value("Alarmschwelle", threshold))
-                            .foregroundStyle(.red.opacity(0.7))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
-                    }
-                    
-                    if liveStation.enableCustomThreshold {
-                        if liveStation.alarmThresholdNormalLevel != nil {
-                            if let normalLevel = liveStation.alarmThresholdNormalLevel {
-                                RuleMark(y: .value("Vorwarnstufe", normalLevel))
-                                    .foregroundStyle(.yellow.opacity(0.7))
-                                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [5]))
+                            .foregroundStyle(.red.opacity(0.8))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
+                            .annotation(position: .top, alignment: .trailing) {
+                                Text("Alarmschwelle \(Int(threshold)) cm")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.red)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                             }
-                        }
-                        
-                        if liveStation.alarmThresholdDangerLevel != nil {
-                            if let dangerLevel = liveStation.alarmThresholdDangerLevel {
-                                RuleMark(y: .value("Kritischestufe", dangerLevel))
-                                    .foregroundStyle(.red.opacity(0.7))
-                            }
-                        }
                     }
-                    
-                    
 
-                    // Cursor
+                    // ── Built-in custom threshold levels ────────────────────
+                    if liveStation.enableCustomThreshold {
+                        if let normalLevel = liveStation.alarmThresholdNormalLevel {
+                            RuleMark(y: .value("Vorwarnstufe", normalLevel))
+                                .foregroundStyle(.yellow.opacity(0.9))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                                .annotation(position: .top, alignment: .trailing) {
+                                    alarmLabel(text: "Vorwarnung \(Int(normalLevel)) cm", color: .yellow)
+                                }
+                        }
+                        if let warningLevel = liveStation.alarmThresholdWarningLevel {
+                            RuleMark(y: .value("Warnstufe", warningLevel))
+                                .foregroundStyle(.orange.opacity(0.9))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                                .annotation(position: .top, alignment: .trailing) {
+                                    alarmLabel(text: "Warnstufe \(Int(warningLevel)) cm", color: .orange)
+                                }
+                        }
+                        if let dangerLevel = liveStation.alarmThresholdDangerLevel {
+                            RuleMark(y: .value("Gefahrenstufe", dangerLevel))
+                                .foregroundStyle(.red.opacity(0.9))
+                                .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                                .annotation(position: .top, alignment: .trailing) {
+                                    alarmLabel(text: "Kritisch \(Int(dangerLevel)) cm", color: .red)
+                                }
+                        }
+                    }
+
+                    // ── User-defined custom alarms ───────────────────────────
+                    ForEach(liveStation.sortedCustomAlarms) { alarm in
+                        RuleMark(y: .value(alarm.name, alarm.threshold))
+                            .foregroundStyle(alarm.color.opacity(0.85))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            .annotation(position: .top, alignment: .trailing) {
+                                alarmLabel(text: "\(alarm.name) \(Int(alarm.threshold)) cm",
+                                           color: alarm.color)
+                            }
+                    }
+
+                    // ── Interactive cursor ───────────────────────────────────
                     if let date = selectedDate, let point = nearest(to: date) {
                         RuleMark(x: .value("Auswahl", point.timestamp))
-                            .foregroundStyle(.secondary.opacity(0.5))
+                            .foregroundStyle(.secondary.opacity(0.4))
                         PointMark(
                             x: .value("Zeit", point.timestamp),
                             y: .value("Pegel", point.value)
                         )
-                        .symbolSize(80)
+                        .symbolSize(70)
                         .foregroundStyle(alarmColor)
                     }
                 }
-                .chartXSelection(value: $selectedDate)
+                .chartForegroundStyleScale([
+                    "Wasserstand": alarmColor
+                ])
+                .chartLegend(position: .top, alignment: .leading, spacing: 8)
                 .chartYScale(domain: .automatic(includesZero: false))
                 .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 4)) { value in
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                         AxisGridLine()
                         AxisValueLabel(
                             format: visibleDays == 1
@@ -572,7 +729,7 @@ struct StationDetailView: View {
                         )
                     }
                 }
-                .frame(height: 200)
+                .frame(height: 220)
             }
             .padding()
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -588,6 +745,16 @@ struct StationDetailView: View {
         } catch {
             historyError = error.localizedDescription
         }
+    }
+    @ViewBuilder
+    private func alarmLabel(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+            .fixedSize()
     }
 }
 
