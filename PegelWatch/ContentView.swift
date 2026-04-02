@@ -7,7 +7,6 @@ struct ContentView: View {
                 .tabItem {
                     Label("Watchlist", systemImage: "water.waves")
                 }
-
             StationSearchView()
                 .tabItem {
                     Label("Suchen", systemImage: "magnifyingglass")

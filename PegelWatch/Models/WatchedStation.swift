@@ -29,6 +29,17 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     /// Whether the user has enabled alarm notifications for this station
     var alarmEnabled: Bool = true
 
+    /// True while level is above threshold — reset when it drops back below (prevents repeat spam)
+    var alarmTriggered: Bool = false
+    var lastNotifiedAt: Date?
+
+    /// Per-custom-alarm triggered state (keyed by alarm UUID string)
+    var customAlarmTriggered: [String: Bool] = [:]
+    var customAlarmLastNotifiedAt: [String: Date] = [:]
+
+    /// Alarm event history
+    var alarmHistory: [AlarmEvent] = []
+
     // MARK: - Computed
 
     var waterDisplayName: String {

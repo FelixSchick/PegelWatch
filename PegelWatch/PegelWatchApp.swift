@@ -1,6 +1,7 @@
 import SwiftUI
 import BackgroundTasks
 import UserNotifications
+import WidgetKit
 
 @main
 struct PegelWatchApp: App {
@@ -34,7 +35,11 @@ struct PegelWatchApp: App {
     private func handleBackgroundRefresh(task: BGAppRefreshTask) {
         scheduleBackgroundRefresh()
 
-        let operation = Task {
+        let operation = Task { @MainActor in
+            await StationStore.shared.refreshAll()
+            
+            
+            /*
             let store = StationStore.shared
             let ids = store.watchedStations.map { $0.id }
             guard !ids.isEmpty else {
@@ -43,14 +48,27 @@ struct PegelWatchApp: App {
             }
 
             let levels = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+
             for (id, value) in levels {
                 store.updateLevel(id: id, value: value)
-                if let station = store.watchedStations.first(where: { $0.id == id }),
-                   let threshold = station.alarmThreshold,
-                   value >= threshold {
+
+                guard let station = store.watchedStations.first(where: { $0.id == id }) else { continue }
+
+                // ✅ 1. Update Live Activity
+                await LiveActivityManager.shared.update(station: station)
+
+                
+                // ✅ 2. Send notification if threshold crossed
+                if let threshold = station.alarmThreshold, value >= threshold {
                     NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
                 }
             }
+
+            // ✅ 3. Tell WidgetKit to reload
+            WidgetCenter.shared.reloadAllTimelines()
+
+            */
+            
             task.setTaskCompleted(success: true)
         }
 

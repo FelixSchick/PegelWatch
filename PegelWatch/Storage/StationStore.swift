@@ -12,7 +12,7 @@ class StationStore {
     var watchedStations: [WatchedStation] = [] {
         didSet {
             persist()
-            WidgetCenter.shared.reloadAllTimelines()   // push fresh data to widget
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 
@@ -21,17 +21,30 @@ class StationStore {
 
     // MARK: - Init
 
-    init() { load() }
+    init() {
+        load()
+        observeICloudChanges()
+    }
 
     // MARK: - Watchlist Management
 
     func add(_ station: WatchedStation) {
         guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
         watchedStations.append(station)
+        
+        //refresh
+        Task.init {
+            await StationStore.shared.refreshAll()
+        }
     }
 
     func remove(id: String) {
         watchedStations.removeAll { $0.id == id }
+        
+        //refresh
+        Task.init {
+            await StationStore.shared.refreshAll()
+        }
     }
 
     func isWatching(_ stationID: String) -> Bool {
@@ -75,7 +88,6 @@ class StationStore {
         guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { return }
         watchedStations[idx].alarmThresholdDangerLevel = level
     }
-    
 
     func addCustomAlarm(_ alarm: CustomAlarm, to stationID: String) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
@@ -94,6 +106,11 @@ class StationStore {
         watchedStations[idx].customAlarms.removeAll { $0.id == id }
     }
 
+    func clearAlarmHistory(for stationID: String) {
+        guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
+        watchedStations[idx].alarmHistory.removeAll()
+    }
+
     // MARK: - Refresh All
 
     @MainActor
@@ -110,51 +127,111 @@ class StationStore {
 
         for (id, value) in levels {
             updateLevel(id: id, value: value)
+            guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
+            let station = watchedStations[idx]
 
-            guard let station = watchedStations.first(where: { $0.id == id }) else { continue }
-
-            // Notifications
-            if station.alarmEnabled,
-               let threshold = station.alarmThreshold,
-               value >= threshold {
-                NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
-                
-    
-                await LiveActivityManager.shared.update(station: station)
-            }
             
-            // In refreshAll(), after the existing `if station.alarmEnabled …` block:
+            
+            // ── Main threshold alarm ─────────────────────────────────────────
+            if station.alarmEnabled, let threshold = station.alarmThreshold {
+
+                let isAbove = value >= threshold
+            
+                await LiveActivityManager.shared.update(station: watchedStations[idx])
+                if isAbove && !station.alarmTriggered {
+                    // First crossing upward: fire once
+                    NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
+                    watchedStations[idx].alarmTriggered = true
+                    watchedStations[idx].lastNotifiedAt = Date()
+                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                        triggeredAt: Date(), alarmLevel: station.alarmLevel, level: value, threshold: threshold,
+                        label: "Alarm", kind: .triggered
+                    ))
+                    
+
+                } else if !isAbove && station.alarmTriggered {
+                    // Recovered: reset flag + record
+                    watchedStations[idx].alarmTriggered = false
+                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                        triggeredAt: Date(), level: value, threshold: threshold,
+                        label: "Entwarnung", kind: .recovered
+                    ))
+                    
+                    await LiveActivityManager.shared.update(station: watchedStations[idx])
+                }
+            }
+
+            // ── Custom alarms ────────────────────────────────────────────────
             for alarm in station.sortedCustomAlarms where alarm.notificationsEnabled {
-                if value >= alarm.threshold {
+                print("Test 2")
+                let key     = alarm.id.uuidString
+                let isAbove = value >= alarm.threshold
+                let wasAbove = station.customAlarmTriggered[key] ?? false
+
+                if isAbove && !wasAbove {
                     NotificationManager.shared.sendCustomAlarmNotification(
                         for: station, alarm: alarm, currentValue: value
                     )
+                    watchedStations[idx].customAlarmTriggered[key]      = true
+                    watchedStations[idx].customAlarmLastNotifiedAt[key] = Date()
+                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                        triggeredAt: Date(), level: value, threshold: alarm.threshold,
+                        label: alarm.name, kind: .triggered
+                    ))
+                } else if !isAbove && wasAbove {
+                    watchedStations[idx].customAlarmTriggered[key] = false
+                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                        triggeredAt: Date(), level: value, threshold: alarm.threshold,
+                        label: alarm.name, kind: .recovered
+                    ))
                 }
             }
-        
         }
     }
 
-    // MARK: - Persistence — uses App Group so widget can read it
+    // MARK: - Persistence
+    // Primary: iCloud KV (syncs across devices)
+    // Mirror:  App Group UserDefaults (widget extension reads from here)
 
-    private let appGroup  = "group.de.felixschick.pegelwatch"
+    private let appGroup   = "group.de.felixschick.pegelwatch"
     private let storageKey = "de.felixschick.pegelwatch.watched_stations"
 
     private func persist() {
         guard let data = try? JSONEncoder().encode(watchedStations) else { return }
-        // Write to App Group so the widget extension can read it
+        NSUbiquitousKeyValueStore.default.set(data, forKey: storageKey)
+        NSUbiquitousKeyValueStore.default.synchronize()
         UserDefaults(suiteName: appGroup)?.set(data, forKey: storageKey)
-        // Also keep standard for backwards compatibility
-        UserDefaults.standard.set(data, forKey: storageKey)
     }
 
     private func load() {
-        // Prefer App Group, fall back to standard
-        let defaults = UserDefaults(suiteName: appGroup) ?? .standard
-        guard
-            let data    = defaults.data(forKey: storageKey),
-            let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data)
-        else { return }
-        watchedStations = decoded
+        // Prefer iCloud KV (most up-to-date across devices)
+        if let data    = NSUbiquitousKeyValueStore.default.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data) {
+            watchedStations = decoded
+            UserDefaults(suiteName: appGroup)?.set(data, forKey: storageKey)
+            return
+        }
+        // Fall back to App Group
+        if let data    = UserDefaults(suiteName: appGroup)?.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data) {
+            watchedStations = decoded
+        }
+    }
+
+    private func observeICloudChanges() {
+        NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let keys = (notification.userInfo?[NSUbiquitousKeyValueStoreChangedKeysKey] as? [String]) ?? []
+            guard keys.contains(self.storageKey) else { return }
+            if let data    = NSUbiquitousKeyValueStore.default.data(forKey: self.storageKey),
+               let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data) {
+                self.watchedStations = decoded
+                UserDefaults(suiteName: self.appGroup)?.set(data, forKey: self.storageKey)
+            }
+        }
     }
 }

@@ -23,6 +23,8 @@ struct StationDetailView: View {
     @State private var isLoadingHistory = false
     @State private var historyError: String?
     
+    @State private var showHistory: Bool = false
+    
     @State private var showAddAlarm: Bool = false
     @State private var alarmToEdit: CustomAlarm? = nil
 
@@ -46,6 +48,16 @@ struct StationDetailView: View {
         .navigationTitle(station.shortname)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            
+        
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "books.vertical")
+                }
+            }
+            
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await store.refreshAll() }
@@ -63,6 +75,9 @@ struct StationDetailView: View {
         }
         .sheet(isPresented: $showCustomThresholdEditor) {
             customThresholdSheet
+        }
+        .sheet(isPresented: $showHistory) {
+            AlarmHistoryView(station: liveStation)
         }
     }
 
@@ -225,6 +240,11 @@ struct StationDetailView: View {
                         set: { newValue in
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 store.setCustomThreshold(id: station.id, enabled: newValue)
+                                
+                                //refresh
+                                Task.init {
+                                    await StationStore.shared.refreshAll()
+                                }
                             }
                         }
                     ))
@@ -312,6 +332,12 @@ struct StationDetailView: View {
         VStack(spacing: 0) {
             Button(role: .destructive) {
                 store.remove(id: station.id)
+                
+                //refresh
+                Task.init {
+                    await StationStore.shared.refreshAll()
+                }
+                
             } label: {
                 Label("Station entfernen", systemImage: "trash")
                     .frame(maxWidth: .infinity)
@@ -359,6 +385,12 @@ struct StationDetailView: View {
                     Button("Speichern") {
                         if let value = Double(thresholdInput), value > 0 {
                             store.setThreshold(id: station.id, threshold: value)
+                            
+                            //refresh
+                            Task.init {
+                                await StationStore.shared.refreshAll()
+                            }
+                            
                         }
                         showThresholdEditor = false
                     }
@@ -445,6 +477,12 @@ struct StationDetailView: View {
                         
                         store.setAlarmThresholdNormalLevel(id: liveStation.id, level: normalThresholdInput)
                         store.setAlarmThresholdDangerLevel(id: liveStation.id, level: dangerThresholdInput)
+                        
+                        //refresh
+                        Task.init {
+                            await StationStore.shared.refreshAll()
+                        }
+                        
                         
                         showCustomThresholdEditor = false
                     }.disabled(!customThresholdValueChanged)
@@ -729,6 +767,7 @@ struct StationDetailView: View {
                         )
                     }
                 }
+                .chartXSelection(value: $selectedDate)
                 .frame(height: 220)
             }
             .padding()

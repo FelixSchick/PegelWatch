@@ -67,10 +67,12 @@
 		207048E52F7ACFB6006B90A3 /* Exceptions for "PegelWatch" folder in "PegelWatchWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Models/AlarmEvent.swift,
 				Models/AlarmLevel.swift,
 				Models/CustomAlarm.swift,
 				Models/Station.swift,
 				Models/WatchedStation.swift,
+				Networking/PegelOnlineAPI.swift,
 			);
 			target = 207048CB2F7A91B5006B90A3 /* PegelWatchWidgetExtension */;
 		};

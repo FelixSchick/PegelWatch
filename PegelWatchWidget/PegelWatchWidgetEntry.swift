@@ -22,7 +22,33 @@ struct PegelWatchWidgetEntry: TimelineEntry {
     )
 }
 
-// MARK: - Provider
+// MARK: - Shared helpers
+
+private func loadAllStationsFromDefaults() -> [WatchedStation] {
+    let defaults = UserDefaults(suiteName: "group.de.felixschick.pegelwatch") ?? .standard
+    guard
+        let data    = defaults.data(forKey: "de.felixschick.pegelwatch.watched_stations"),
+        let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data)
+    else { return [] }
+    return decoded
+}
+
+private func fetchAndUpdate(_ stations: [WatchedStation]) async -> [WatchedStation] {
+    let ids = stations.map { $0.id }
+    guard !ids.isEmpty else { return stations }
+    let levels = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+    var updated = stations
+    for i in updated.indices {
+        if let v = levels[updated[i].id] {
+            updated[i].lastValue   = v
+            updated[i].lastUpdated = Date()
+        }
+    }
+    return updated
+}
+
+// MARK: - Small/Medium Provider (configurable — user picks a station)
+
 struct PegelWatchWidgetProvider: AppIntentTimelineProvider {
     typealias Intent = SelectStationIntent
 
@@ -30,43 +56,50 @@ struct PegelWatchWidgetProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: SelectStationIntent,
                   in context: Context) async -> PegelWatchWidgetEntry {
-        context.isPreview ? .placeholder : buildEntry(for: configuration)
+        context.isPreview ? .placeholder : await buildEntry(for: configuration)
     }
 
     func timeline(for configuration: SelectStationIntent,
                   in context: Context) async -> Timeline<PegelWatchWidgetEntry> {
-        let entry = buildEntry(for: configuration)
-        let next  = Calendar.current.date(byAdding: .minute, value: 15, to: entry.date)!
+        let entry = await buildEntry(for: configuration)
+        let next  = Calendar.current.date(byAdding: .minute, value: 15, to: .now)!
         return Timeline(entries: [entry], policy: .after(next))
     }
 
     // MARK: - Private
 
-    private func buildEntry(for config: SelectStationIntent) -> PegelWatchWidgetEntry {
-        let all = loadAllStations()
-
-        // Resolve the chosen entity ID → WatchedStation, fall back to first
+    private func buildEntry(for config: SelectStationIntent) async -> PegelWatchWidgetEntry {
+        let all     = await fetchAndUpdate(loadAllStationsFromDefaults())
         let pinned: WatchedStation?
         if let selectedID = config.station?.id {
             pinned = all.first { $0.id == selectedID } ?? all.first
         } else {
             pinned = all.first
         }
+        let pinnedList: [WatchedStation] = pinned.map { [$0] } ?? []
+        return PegelWatchWidgetEntry(date: .now, stations: pinnedList, allStations: all)
+    }
+}
 
-        return PegelWatchWidgetEntry(
-            date: .now,
-            stations: pinned.map { [$0] } ?? [],
-            allStations: all
-        )
+// MARK: - Large Provider (not configurable — always shows full watchlist)
+
+struct PegelWatchLargeProvider: TimelineProvider {
+
+    func placeholder(in context: Context) -> PegelWatchWidgetEntry { .placeholder }
+
+    func getSnapshot(in context: Context,
+                     completion: @escaping (PegelWatchWidgetEntry) -> Void) {
+        completion(.placeholder)
     }
 
-    private func loadAllStations() -> [WatchedStation] {
-        let defaults = UserDefaults(suiteName: "group.de.felixschick.pegelwatch") ?? .standard
-        guard
-            let data    = defaults.data(forKey: "de.felixschick.pegelwatch.watched_stations"),
-            let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data)
-        else { return [] }
-        return decoded
+    func getTimeline(in context: Context,
+                     completion: @escaping (Timeline<PegelWatchWidgetEntry>) -> Void) {
+        Task {
+            let all   = await fetchAndUpdate(loadAllStationsFromDefaults())
+            let entry = PegelWatchWidgetEntry(date: .now, stations: all, allStations: all)
+            let next  = Calendar.current.date(byAdding: .minute, value: 15, to: .now)!
+            completion(Timeline(entries: [entry], policy: .after(next)))
+        }
     }
 }
 
@@ -75,13 +108,14 @@ struct PegelWatchWidgetProvider: AppIntentTimelineProvider {
 @main
 struct PegelWatchWidgetBundle: WidgetBundle {
     var body: some Widget {
-        PegelWatchWidget()
-        PegelWatchLiveActivityWidget()        // standard monitoring
+        PegelWatchWidget()          // small + medium, configurable
+        PegelWatchLargeWidget()     // large, always shows full watchlist
+        PegelWatchLiveActivityWidget()
         PegelWatchCriticalLiveActivityWidget()
     }
 }
 
-// MARK: - Widget Declaration
+// MARK: - Small + Medium Widget (configurable)
 
 struct PegelWatchWidget: Widget {
     let kind = "PegelWatchWidget"
@@ -92,26 +126,40 @@ struct PegelWatchWidget: Widget {
             intent: SelectStationIntent.self,
             provider: PegelWatchWidgetProvider()
         ) { entry in
-            PegelWatchWidgetView(entry: entry)
+            SmallMediumWidgetView(entry: entry)
                 .containerBackground(for: .widget) { Color(.systemBackground) }
         }
         .configurationDisplayName("PegelWatch")
         .description("Aktuelle Wasserstände im Blick.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium])
     }
 }
 
-// MARK: - Root View (dispatches by family)
+// MARK: - Large Widget (not configurable — always shows full watchlist)
 
-struct PegelWatchWidgetView: View {
+struct PegelWatchLargeWidget: Widget {
+    let kind = "PegelWatchLargeWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: PegelWatchLargeProvider()) { entry in
+            LargeWidgetView(entry: entry)
+                .containerBackground(for: .widget) { Color(.systemBackground) }
+        }
+        .configurationDisplayName("PegelWatch – Übersicht")
+        .description("Alle beobachteten Pegelstationen auf einen Blick.")
+        .supportedFamilies([.systemLarge])
+    }
+}
+
+// MARK: - Small/Medium root view
+
+struct SmallMediumWidgetView: View {
     let entry: PegelWatchWidgetEntry
     @Environment(\.widgetFamily) var family
 
     var body: some View {
         switch family {
-        case .systemSmall:  SmallWidgetView(entry: entry)
         case .systemMedium: MediumWidgetView(entry: entry)
-        case .systemLarge:  LargeWidgetView(entry: entry)
         default:            SmallWidgetView(entry: entry)
         }
     }
