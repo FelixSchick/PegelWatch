@@ -50,6 +50,7 @@
 		20295CCA2F72DB6A00BC7C05 /* PegelWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PegelWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		20295CFF2F732B1000BC7C05 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		20295D012F732B1000BC7C05 /* UserNotificationsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotificationsUI.framework; path = System/Library/Frameworks/UserNotificationsUI.framework; sourceTree = SDKROOT; };
+		207048C02F7A8F93006B90A3 /* PegelWatchWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PegelWatchWidgetExtension.entitlements; sourceTree = "<group>"; };
 		207048CC2F7A91B5006B90A3 /* PegelWatchWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PegelWatchWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		20854B732F7920FB0074FB37 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		20854B752F7920FB0074FB37 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -137,6 +138,7 @@
 		20295CC12F72DB6A00BC7C05 = {
 			isa = PBXGroup;
 			children = (
+				207048C02F7A8F93006B90A3 /* PegelWatchWidgetExtension.entitlements */,
 				20295CCC2F72DB6A00BC7C05 /* PegelWatch */,
 				207048CF2F7A91B5006B90A3 /* PegelWatchWidget */,
 				20295CFE2F732B1000BC7C05 /* Frameworks */,
