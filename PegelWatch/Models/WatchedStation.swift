@@ -1,9 +1,7 @@
 import Foundation
 
-/// A station the user has chosen to monitor.
-/// This is stored locally and enriched with live data.
 struct WatchedStation: Identifiable, Codable, Hashable {
-    let id: String            // = station.uuid
+    let id: String
     let shortname: String
     let longname: String
     let waterShortname: String
@@ -13,31 +11,24 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     let longitude: Double?
     let km: Double?
 
-    /// User-defined alarm threshold in cm
     var alarmThreshold: Double?
-    /// User-defined alarm threshold in cm
     var enableCustomThreshold: Bool = false
     var alarmThresholdNormalLevel: Double?
     var alarmThresholdWarningLevel: Double?
     var alarmThresholdDangerLevel: Double?
 
-    /// Live data — updated from API
     var lastValue: Double?
     var lastValueUnit: String = "cm"
     var lastUpdated: Date?
 
-    /// Whether the user has enabled alarm notifications for this station
     var alarmEnabled: Bool = true
-
-    /// True while level is above threshold — reset when it drops back below (prevents repeat spam)
     var alarmTriggered: Bool = false
     var lastNotifiedAt: Date?
 
-    /// Per-custom-alarm triggered state (keyed by alarm UUID string)
+    var customAlarms: [CustomAlarm] = []
     var customAlarmTriggered: [String: Bool] = [:]
     var customAlarmLastNotifiedAt: [String: Date] = [:]
 
-    /// Alarm event history
     var alarmHistory: [AlarmEvent] = []
 
     // MARK: - Computed
@@ -49,61 +40,50 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     var displayName: String {
         longname.isEmpty ? shortname : longname.capitalized
     }
-    
-    // In WatchedStation.swift — add one new property:
-    var customAlarms: [CustomAlarm] = []
 
-    // Computed: all alarms sorted by threshold (used by chart and notifications)
     var sortedCustomAlarms: [CustomAlarm] {
         customAlarms.sorted { $0.threshold < $1.threshold }
     }
 
-    // Computed: the highest custom alarm that has been crossed
     var triggeredCustomAlarm: CustomAlarm? {
         guard let value = lastValue else { return nil }
         return sortedCustomAlarms.last { value >= $0.threshold }
     }
-    
 
     var alarmLevel: AlarmLevel {
         guard let value = lastValue, let threshold = alarmThreshold, threshold > 0 else {
             return .normal
         }
-        
+
         let ratio = value / threshold
-    
+
         if enableCustomThreshold {
-            
-            if alarmThresholdNormalLevel != nil {
-                if value < alarmThresholdNormalLevel! { return .normal }
-            } else if ratio<0.8 { return .normal }
-            
-            if alarmThresholdWarningLevel != nil {
-                if value < alarmThresholdWarningLevel! { return .warning }
-            } else if ratio<1.0 { return .warning }
-            
-            if alarmThresholdDangerLevel != nil {
-                if value < alarmThresholdDangerLevel! { return .danger }
-            } else if ratio<1.2 { return .danger }
-            
+            if let normal = alarmThresholdNormalLevel, value < normal { return .normal }
+            else if ratio < 0.8 { return .normal }
+
+            if let warning = alarmThresholdWarningLevel, value < warning { return .warning }
+            else if ratio < 1.0 { return .warning }
+
+            if let danger = alarmThresholdDangerLevel, value < danger { return .danger }
+            else if ratio < 1.2 { return .danger }
+
             return .critical
         } else {
-            
             switch ratio {
-                case ..<0.8:  return .normal
-                case 0.8..<1.0: return .warning
-            case 1.0..<1.2: return .danger
-                default:      return .critical
+            case ..<0.8:        return .normal
+            case 0.8..<1.0:     return .warning
+            case 1.0..<1.2:     return .danger
+            default:            return .critical
             }
         }
     }
 
     var isStale: Bool {
         guard let updated = lastUpdated else { return true }
-        return Date().timeIntervalSince(updated) > 60 * 30 // 30 min
+        return Date().timeIntervalSince(updated) > 60 * 30
     }
 
-    // MARK: - Init from Station
+    // MARK: - Init
 
     init(from station: Station) {
         self.id             = station.uuid

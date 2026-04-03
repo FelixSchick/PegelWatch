@@ -6,29 +6,24 @@ struct StationDetailView: View {
     let station: WatchedStation
     @State private var store = StationStore.shared
 
-    // Local state for threshold editor
     @State private var showThresholdEditor = false
     @State private var thresholdInput: String = ""
-    
-    /// Note: Values are UP-To Values
-    /// so if normal 100 every value smaller than 100 cm is normal so then 100 is warning
+
+    // Custom threshold levels — values are upper bounds (e.g. normal = value < normalLevel)
     @State private var showCustomThresholdEditor = false
     @State private var normalThresholdInput: Double = 100
     @State private var warningThresholdInput: Double = 200
-    @State private var customThresholdValueChanged: Bool = false
-    
     @State private var dangerThresholdInput: Double = 300
-    
+    @State private var customThresholdValueChanged = false
+
     @State private var levelHistory: [(timestamp: Date, value: Double)] = []
     @State private var isLoadingHistory = false
     @State private var historyError: String?
-    
-    @State private var showHistory: Bool = false
-    
-    @State private var showAddAlarm: Bool = false
-    @State private var alarmToEdit: CustomAlarm? = nil
 
-    // Computed live version from store
+    @State private var showHistory = false
+    @State private var showAddAlarm = false
+    @State private var alarmToEdit: CustomAlarm?
+
     private var liveStation: WatchedStation {
         store.watchedStations.first { $0.id == station.id } ?? station
     }
@@ -48,37 +43,22 @@ struct StationDetailView: View {
         .navigationTitle(station.shortname)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            
-        
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showHistory = true
-                } label: {
+                Button { showHistory = true } label: {
                     Image(systemName: "books.vertical")
                 }
             }
-            
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await store.refreshAll() }
-                } label: {
+                Button { Task { await store.refreshAll() } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .disabled(store.isRefreshing)
             }
         }
-        .task {
-            await loadHistory()
-        }
-        .sheet(isPresented: $showThresholdEditor) {
-            thresholdSheet
-        }
-        .sheet(isPresented: $showCustomThresholdEditor) {
-            customThresholdSheet
-        }
-        .sheet(isPresented: $showHistory) {
-            AlarmHistoryView(station: liveStation)
-        }
+        .task { await loadHistory() }
+        .sheet(isPresented: $showThresholdEditor) { thresholdSheet }
+        .sheet(isPresented: $showCustomThresholdEditor) { customThresholdSheet }
+        .sheet(isPresented: $showHistory) { AlarmHistoryView(station: liveStation) }
     }
 
     // MARK: - Level Gauge
@@ -96,13 +76,9 @@ struct StationDetailView: View {
                         .font(.system(size: 72, weight: .bold, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
-                Text("cm")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 8)
+                Text("cm").font(.title2).foregroundStyle(.secondary).padding(.bottom, 8)
             }
 
-            // Alarm level badge
             Label(liveStation.alarmLevel.label, systemImage: liveStation.alarmLevel.systemImage)
                 .font(.subheadline.bold())
                 .foregroundStyle(liveStation.alarmLevel.color)
@@ -110,17 +86,14 @@ struct StationDetailView: View {
                 .padding(.vertical, 6)
                 .background(liveStation.alarmLevel.color.opacity(0.12), in: Capsule())
 
-            // Progress bar toward threshold
             if let value = liveStation.lastValue, let threshold = liveStation.alarmThreshold {
                 VStack(spacing: 4) {
                     ProgressView(value: min(value, threshold * 1.5), total: threshold * 1.5)
                         .tint(liveStation.alarmLevel.color)
-
                     HStack {
                         Text("0 cm")
                         Spacer()
-                        Text("Schwelle: \(Int(threshold)) cm")
-                            .foregroundStyle(liveStation.alarmLevel.color)
+                        Text("Schwelle: \(Int(threshold)) cm").foregroundStyle(liveStation.alarmLevel.color)
                         Spacer()
                         Text("\(Int(threshold * 1.5)) cm")
                     }
@@ -143,8 +116,6 @@ struct StationDetailView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    
-
     // MARK: - Meta Info
 
     private var metaInfo: some View {
@@ -166,11 +137,9 @@ struct StationDetailView: View {
 
     private func infoRow(label: String, value: String) -> some View {
         HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
+            Text(label).foregroundStyle(.secondary)
             Spacer()
-            Text(value)
-                .fontWeight(.medium)
+            Text(value).fontWeight(.medium)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -181,21 +150,19 @@ struct StationDetailView: View {
     private var alarmSection: some View {
         Section {
             VStack(spacing: 0) {
-                // Alarm enable toggle
                 HStack {
                     Label("Alarm aktiviert", systemImage: "bell.fill")
                     Spacer()
                     Toggle("", isOn: Binding(
                         get: { liveStation.alarmEnabled },
                         set: { store.setAlarmEnabled(id: station.id, enabled: $0) }
-                    )).onChange(of: liveStation.alarmEnabled) {
-                        if liveStation.alarmEnabled == false {
-                            Task {
-                                await LiveActivityManager.shared.end(for: liveStation)
-                            }
-                        } else {
-                            Task {
+                    ))
+                    .onChange(of: liveStation.alarmEnabled) {
+                        Task {
+                            if liveStation.alarmEnabled {
                                 await LiveActivityManager.shared.update(station: liveStation)
+                            } else {
+                                await LiveActivityManager.shared.end(for: liveStation)
                             }
                         }
                     }
@@ -206,32 +173,24 @@ struct StationDetailView: View {
 
                 Divider().padding(.leading)
 
-                // Threshold row
                 Button {
                     thresholdInput = liveStation.alarmThreshold.map { String(Int($0)) } ?? ""
                     showThresholdEditor = true
                 } label: {
                     HStack {
-                        Label("Alarmschwelle", systemImage: "ruler")
-                            .foregroundStyle(.primary)
+                        Label("Alarmschwelle", systemImage: "ruler").foregroundStyle(.primary)
                         Spacer()
-                        if let threshold = liveStation.alarmThreshold {
-                            Text("\(Int(threshold)) cm")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Nicht gesetzt")
-                                .foregroundStyle(.secondary)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        Text(liveStation.alarmThreshold.map { "\(Int($0)) cm" } ?? "Nicht gesetzt")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
-                }.disabled(!liveStation.alarmEnabled)
-                
+                }
+                .disabled(!liveStation.alarmEnabled)
+
                 Divider().padding(.leading)
-                
+
                 HStack {
                     Label("Eigene Warnstufen", systemImage: "gauge.open.righthalf.dotted.with.needle.and.arrow.trianglehead.backward")
                     Spacer()
@@ -240,44 +199,29 @@ struct StationDetailView: View {
                         set: { newValue in
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 store.setCustomThreshold(id: station.id, enabled: newValue)
-                                
-                                //refresh
-                                Task.init {
-                                    await StationStore.shared.refreshAll()
-                                }
+                                Task { await StationStore.shared.refreshAll() }
                             }
                         }
                     ))
-                    .foregroundStyle(.primary)
                     .labelsHidden()
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .disabled(!liveStation.alarmEnabled)
-                
-                if liveStation.enableCustomThreshold {
-                    
-                    VStack {
-                        pegelThresholdLevelButton(for: .warning)
-                        pegelThresholdLevelButton(for: .critical)
-                    }.onTapGesture {
-                        if let value = Double(thresholdInput), value > 0 {
-                                    warningThresholdInput = value
-                        }
-                        customThresholdValueChanged = false
-                        showCustomThresholdEditor = true
-                    }.transition(
-                        .asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .opacity
-                        )
-                    ).foregroundStyle(.primary)
-                        .disabled(!liveStation.alarmEnabled)
-                    
-                    
-                }
 
-                
+                if liveStation.enableCustomThreshold {
+                    VStack {
+                        thresholdLevelRow(for: .warning)
+                        thresholdLevelRow(for: .critical)
+                    }
+                    .onTapGesture { openCustomThresholdEditor() }
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+                    .foregroundStyle(.primary)
+                    .disabled(!liveStation.alarmEnabled)
+                }
             }
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
             .animation(.easeInOut(duration: 0.3), value: liveStation.enableCustomThreshold)
@@ -286,65 +230,44 @@ struct StationDetailView: View {
         } footer: {
             Text("Stelle dir eine Alarmgrenze, ab der du benachrichtigt wirst.")
         }
-        
     }
-    
-    private func pegelThresholdLevelButton(for alarmLevel: AlarmLevel) -> some View {
-        HStack {
-            if alarmLevel == .warning {
-                Label("Warnschwelle", systemImage: "exclamationmark.circle")
-                    .foregroundStyle(
-                        (liveStation.alarmEnabled) ? .yellow : .white
-                    )
-                Spacer()
-                if let threshold = liveStation.alarmThresholdNormalLevel {
-                    Text("\(Int(threshold)) cm")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Nicht gesetzt")
-                        .foregroundStyle(.secondary)
-                }
-            } else if alarmLevel == .critical {
-                Label("Kritischeschwelle", systemImage: "exclamationmark.circle")
-                    .foregroundStyle(
-                        (liveStation.alarmEnabled) ? .red : .white
-                    )
-                Spacer()
-                if let threshold = liveStation.alarmThresholdDangerLevel {
-                    Text("\(Int(threshold)) cm")
-                        .foregroundStyle(.secondary)
-        
-                } else {
-                    Text("Nicht gesetzt")
-                        .foregroundStyle(.secondary)
-                }
-            }
+
+    private func thresholdLevelRow(for level: AlarmLevel) -> some View {
+        let isWarning = level == .warning
+        let label = isWarning ? "Warnschwelle" : "Kritischeschwelle"
+        let color: Color = isWarning ? .yellow : .red
+        let value = isWarning ? liveStation.alarmThresholdNormalLevel : liveStation.alarmThresholdDangerLevel
+
+        return HStack {
+            Label(label, systemImage: "exclamationmark.circle")
+                .foregroundStyle(liveStation.alarmEnabled ? color : .white)
+            Spacer()
+            Text(value.map { "\(Int($0)) cm" } ?? "Nicht gesetzt").foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .disabled(!liveStation.alarmEnabled)
     }
-    
-     
+
+    private func openCustomThresholdEditor() {
+        if let v = Double(thresholdInput), v > 0 { warningThresholdInput = v }
+        if let n = liveStation.alarmThresholdNormalLevel { normalThresholdInput = n }
+        if let d = liveStation.alarmThresholdDangerLevel { dangerThresholdInput = d }
+        customThresholdValueChanged = false
+        showCustomThresholdEditor = true
+    }
+
     // MARK: - Remove Button
 
     private var removeButton: some View {
-        VStack(spacing: 0) {
-            Button(role: .destructive) {
-                store.remove(id: station.id)
-                
-                //refresh
-                Task.init {
-                    await StationStore.shared.refreshAll()
-                }
-                
-            } label: {
-                Label("Station entfernen", systemImage: "trash")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                    .foregroundStyle(.red)
-            }
+        Button(role: .destructive) {
+            store.remove(id: station.id)
+        } label: {
+            Label("Station entfernen", systemImage: "trash")
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.red)
         }
     }
 
@@ -355,10 +278,8 @@ struct StationDetailView: View {
             Form {
                 Section {
                     HStack {
-                        TextField("z.B. 250", text: $thresholdInput)
-                            .keyboardType(.numberPad)
-                        Text("cm")
-                            .foregroundStyle(.secondary)
+                        TextField("z.B. 250", text: $thresholdInput).keyboardType(.numberPad)
+                        Text("cm").foregroundStyle(.secondary)
                     }
                 } header: {
                     Text("Alarmschwelle in Zentimetern")
@@ -385,12 +306,7 @@ struct StationDetailView: View {
                     Button("Speichern") {
                         if let value = Double(thresholdInput), value > 0 {
                             store.setThreshold(id: station.id, threshold: value)
-                            
-                            //refresh
-                            Task.init {
-                                await StationStore.shared.refreshAll()
-                            }
-                            
+                            Task { await StationStore.shared.refreshAll() }
                         }
                         showThresholdEditor = false
                     }
@@ -400,7 +316,7 @@ struct StationDetailView: View {
         }
         .presentationDetents([.medium])
     }
-    
+
     // MARK: - Custom Threshold Sheet
 
     private var customThresholdSheet: some View {
@@ -408,62 +324,39 @@ struct StationDetailView: View {
             Form {
                 Section {
                     HStack {
-                        Label("Alarmschwelle", systemImage: "ruler")
-                            .foregroundStyle(.primary)
+                        Label("Alarmschwelle", systemImage: "ruler").foregroundStyle(.primary)
                         Spacer()
-                        if let threshold = liveStation.alarmThreshold {
-                            Text("\(Int(threshold)) cm")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Nicht gesetzt")
-                                .foregroundStyle(.secondary)
-                        }
-                    
+                        Text(liveStation.alarmThreshold.map { "\(Int($0)) cm" } ?? "Nicht gesetzt")
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 } header: {
                     Label("Alarmschwelle", systemImage: "bell.fill")
                 }
-                
+
                 Section {
                     VStack(alignment: .leading) {
-                                Text("Vorwarnung ab \(Int(normalThresholdInput)) cm")
-                                    .foregroundStyle(.yellow)
-
-                                Slider(
-                                    value: $normalThresholdInput,
-                                    in: 0...(warningThresholdInput - 10),
-                                    step: 10
-                                ).onChange(of: normalThresholdInput) {
-                                    customThresholdValueChanged = true
-                                }
-                            }
+                        Text("Vorwarnung ab \(Int(normalThresholdInput)) cm").foregroundStyle(.yellow)
+                        Slider(value: $normalThresholdInput, in: 0...(warningThresholdInput - 10), step: 10)
+                            .onChange(of: normalThresholdInput) { customThresholdValueChanged = true }
+                    }
                 } header: {
                     Label("Vorwarnstufenschwelle in cm", systemImage: "exclamationmark.circle")
                 } footer: {
-                    Text("Ab dieser Höhe wird die Vorwarnstuffe angezeigt")
+                    Text("Ab dieser Höhe wird die Vorwarnstufe angezeigt")
                 }
-                
+
                 Section {
                     VStack(alignment: .leading) {
-                                Text("Kritisch ab \(Int(dangerThresholdInput)) cm")
-                                    .foregroundStyle(.red)
-
-                                Slider(
-                                    value: $dangerThresholdInput,
-                                    in: (warningThresholdInput+10)...(warningThresholdInput*3),
-                                    step: 10
-                                ).onChange(of: dangerThresholdInput) {
-                                    customThresholdValueChanged = true
-                                }
-                    }.onTapGesture {
-                        customThresholdValueChanged = true
+                        Text("Kritisch ab \(Int(dangerThresholdInput)) cm").foregroundStyle(.red)
+                        Slider(value: $dangerThresholdInput, in: (warningThresholdInput + 10)...(warningThresholdInput * 3), step: 10)
+                            .onChange(of: dangerThresholdInput) { customThresholdValueChanged = true }
                     }
                 } header: {
                     Label("Kritischewarnstufenschwelle in cm", systemImage: "exclamationmark.circle")
                 } footer: {
-                    Text("Ab dieser Höhe wird die Kritikstuffe angezeigt")
+                    Text("Ab dieser Höhe wird die Kritischstufe angezeigt")
                 }
             }
             .navigationTitle("Alarmschwelle")
@@ -474,38 +367,27 @@ struct StationDetailView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
-                        
                         store.setAlarmThresholdNormalLevel(id: liveStation.id, level: normalThresholdInput)
                         store.setAlarmThresholdDangerLevel(id: liveStation.id, level: dangerThresholdInput)
-                        
-                        //refresh
-                        Task.init {
-                            await StationStore.shared.refreshAll()
-                        }
-                        
-                        
+                        Task { await StationStore.shared.refreshAll() }
                         showCustomThresholdEditor = false
-                    }.disabled(!customThresholdValueChanged)
+                    }
+                    .disabled(!customThresholdValueChanged)
                 }
             }
         }
         .presentationDetents([.large])
     }
-    
-    // MARK: - Custom Alarm
+
+    // MARK: - Custom Alarms Section
+
     private var customAlarmsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-
-            // Header row
             HStack {
-                Label("Eigene Alarme", systemImage: "bell.badge")
-                    .font(.headline)
+                Label("Eigene Alarme", systemImage: "bell.badge").font(.headline)
                 Spacer()
-                Button {
-                    showAddAlarm = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
+                Button { showAddAlarm = true } label: {
+                    Image(systemName: "plus.circle.fill").font(.title3)
                 }
             }
             .padding(.horizontal)
@@ -516,12 +398,8 @@ struct StationDetailView: View {
                 HStack {
                     Spacer()
                     VStack(spacing: 6) {
-                        Image(systemName: "bell.slash")
-                            .font(.title2)
-                            .foregroundStyle(.quaternary)
-                        Text("Noch keine eigenen Alarme")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        Image(systemName: "bell.slash").font(.title2).foregroundStyle(.quaternary)
+                        Text("Noch keine eigenen Alarme").font(.caption).foregroundStyle(.tertiary)
                     }
                     Spacer()
                 }
@@ -530,18 +408,14 @@ struct StationDetailView: View {
                 ForEach(liveStation.sortedCustomAlarms) { alarm in
                     Divider().padding(.leading)
                     HStack(spacing: 12) {
-                        Circle()
-                            .fill(alarm.color)
-                            .frame(width: 10, height: 10)
+                        Circle().fill(alarm.color).frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(alarm.name)
-                                .font(.subheadline.weight(.semibold))
+                            Text(alarm.name).font(.subheadline.weight(.semibold))
                             Text("\(Int(alarm.threshold)) cm")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        // Active indicator
                         if let value = liveStation.lastValue, value >= alarm.threshold {
                             Text("Aktiv")
                                 .font(.caption.weight(.semibold))
@@ -550,19 +424,13 @@ struct StationDetailView: View {
                                 .padding(.vertical, 3)
                                 .background(alarm.color.opacity(0.15), in: Capsule())
                         }
-                        // Edit button
-                        Button {
-                            alarmToEdit = alarm
-                        } label: {
-                            Image(systemName: "pencil.circle")
-                                .foregroundStyle(.secondary)
+                        Button { alarmToEdit = alarm } label: {
+                            Image(systemName: "pencil.circle").foregroundStyle(.secondary)
                         }
-                        // Delete button
                         Button(role: .destructive) {
                             store.removeCustomAlarm(id: alarm.id, from: liveStation.id)
                         } label: {
-                            Image(systemName: "trash.circle")
-                                .foregroundStyle(.red.opacity(0.7))
+                            Image(systemName: "trash.circle").foregroundStyle(.red.opacity(0.7))
                         }
                     }
                     .padding(.horizontal)
@@ -582,25 +450,25 @@ struct StationDetailView: View {
             }
         }
     }
-    
+
     // MARK: - History Chart
-    
+
     private var historyChart: some View {
         LevelChartView(
-                history: levelHistory,
-                threshold: liveStation.alarmThreshold,
-                alarmColor: liveStation.alarmLevel.color,
-                liveStation: liveStation
-            )
+            history: levelHistory,
+            threshold: liveStation.alarmThreshold,
+            alarmColor: liveStation.alarmLevel.color,
+            liveStation: liveStation
+        )
     }
-    
+
     struct LevelChartView: View {
         let history: [(timestamp: Date, value: Double)]
         let threshold: Double?
         let alarmColor: Color
         let liveStation: WatchedStation
 
-        @State private var selectedDate: Date? = nil
+        @State private var selectedDate: Date?
         @State private var visibleDays: Int = 7
 
         private var visibleHistory: [(timestamp: Date, value: Double)] {
@@ -609,10 +477,9 @@ struct StationDetailView: View {
         }
 
         private func nearest(to date: Date) -> (timestamp: Date, value: Double)? {
-            visibleHistory.min(by: {
-                abs($0.timestamp.timeIntervalSince(date)) <
-                abs($1.timestamp.timeIntervalSince(date))
-            })
+            visibleHistory.min {
+                abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
+            }
         }
 
         @ViewBuilder
@@ -625,11 +492,9 @@ struct StationDetailView: View {
                 .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                 .fixedSize()
         }
-        
+
         var body: some View {
             VStack(alignment: .leading, spacing: 12) {
-
-                // Header — shows selected value or latest
                 if let date = selectedDate, let point = nearest(to: date) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(Int(point.value)) cm")
@@ -642,15 +507,12 @@ struct StationDetailView: View {
                     }
                     .animation(.snappy, value: point.value)
                 } else if let latest = visibleHistory.last {
-                    Text("\(Int(latest.value)) cm")
-                        .font(.title.bold())
-                        .foregroundStyle(alarmColor)
+                    Text("\(Int(latest.value)) cm").font(.title.bold()).foregroundStyle(alarmColor)
                     Text("Letztes Update: \(latest.timestamp.formatted(.dateTime.weekday(.wide).hour().minute().locale(Locale(identifier: "de_DE"))))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                // Range picker
                 Picker("Zeitraum", selection: $visibleDays) {
                     Text("24h").tag(1)
                     Text("7T").tag(7)
@@ -659,49 +521,31 @@ struct StationDetailView: View {
                 .pickerStyle(.segmented)
                 .onChange(of: visibleDays) { selectedDate = nil }
 
-                // Chart
                 Chart {
-                    // ── Water-level area + line ──────────────────────────────
                     ForEach(visibleHistory, id: \.timestamp) { point in
-                        AreaMark(
-                            x: .value("Zeit", point.timestamp),
-                            y: .value("Pegel", point.value)
-                        )
-                        .foregroundStyle(
-                            .linearGradient(
+                        AreaMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
+                            .foregroundStyle(.linearGradient(
                                 colors: [alarmColor.opacity(0.25), .clear],
                                 startPoint: .top, endPoint: .bottom
-                            )
-                        )
-                        .interpolationMethod(.catmullRom)
+                            ))
+                            .interpolationMethod(.catmullRom)
 
-                        LineMark(
-                            x: .value("Zeit", point.timestamp),
-                            y: .value("Pegel", point.value)
-                        )
-                        .foregroundStyle(alarmColor)
-                        .lineStyle(StrokeStyle(lineWidth: 2))
-                        .interpolationMethod(.catmullRom)
-                        // Series name appears in the legend
-                        .foregroundStyle(by: .value("Reihe", "Wasserstand"))
+                        LineMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
+                            .foregroundStyle(alarmColor)
+                            .lineStyle(StrokeStyle(lineWidth: 2))
+                            .interpolationMethod(.catmullRom)
+                            .foregroundStyle(by: .value("Reihe", "Wasserstand"))
                     }
 
-                    // ── Main alarm threshold ─────────────────────────────────
                     if let threshold {
                         RuleMark(y: .value("Alarmschwelle", threshold))
                             .foregroundStyle(.red.opacity(0.8))
                             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
                             .annotation(position: .top, alignment: .trailing) {
-                                Text("Alarmschwelle \(Int(threshold)) cm")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.red)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                alarmLabel(text: "Alarmschwelle \(Int(threshold)) cm", color: .red)
                             }
                     }
 
-                    // ── Built-in custom threshold levels ────────────────────
                     if liveStation.enableCustomThreshold {
                         if let normalLevel = liveStation.alarmThresholdNormalLevel {
                             RuleMark(y: .value("Vorwarnstufe", normalLevel))
@@ -729,42 +573,30 @@ struct StationDetailView: View {
                         }
                     }
 
-                    // ── User-defined custom alarms ───────────────────────────
                     ForEach(liveStation.sortedCustomAlarms) { alarm in
                         RuleMark(y: .value(alarm.name, alarm.threshold))
                             .foregroundStyle(alarm.color.opacity(0.85))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                             .annotation(position: .top, alignment: .trailing) {
-                                alarmLabel(text: "\(alarm.name) \(Int(alarm.threshold)) cm",
-                                           color: alarm.color)
+                                alarmLabel(text: "\(alarm.name) \(Int(alarm.threshold)) cm", color: alarm.color)
                             }
                     }
 
-                    // ── Interactive cursor ───────────────────────────────────
                     if let date = selectedDate, let point = nearest(to: date) {
                         RuleMark(x: .value("Auswahl", point.timestamp))
                             .foregroundStyle(.secondary.opacity(0.4))
-                        PointMark(
-                            x: .value("Zeit", point.timestamp),
-                            y: .value("Pegel", point.value)
-                        )
-                        .symbolSize(70)
-                        .foregroundStyle(alarmColor)
+                        PointMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
+                            .symbolSize(70)
+                            .foregroundStyle(alarmColor)
                     }
                 }
-                .chartForegroundStyleScale([
-                    "Wasserstand": alarmColor
-                ])
+                .chartForegroundStyleScale(["Wasserstand": alarmColor])
                 .chartLegend(position: .top, alignment: .leading, spacing: 8)
                 .chartYScale(domain: .automatic(includesZero: false))
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                         AxisGridLine()
-                        AxisValueLabel(
-                            format: visibleDays == 1
-                                ? .dateTime.hour()
-                                : .dateTime.month(.abbreviated).day()
-                        )
+                        AxisValueLabel(format: visibleDays == 1 ? .dateTime.hour() : .dateTime.month(.abbreviated).day())
                     }
                 }
                 .chartXSelection(value: $selectedDate)
@@ -774,8 +606,7 @@ struct StationDetailView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         }
     }
-    
-    
+
     private func loadHistory() async {
         isLoadingHistory = true
         defer { isLoadingHistory = false }
@@ -785,20 +616,8 @@ struct StationDetailView: View {
             historyError = error.localizedDescription
         }
     }
-    @ViewBuilder
-    private func alarmLabel(text: String, color: Color) -> some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-            .fixedSize()
-    }
 }
 
 #Preview {
-    NavigationStack {
-        StationDetailView(station: .preview)
-    }
+    NavigationStack { StationDetailView(station: .preview) }
 }

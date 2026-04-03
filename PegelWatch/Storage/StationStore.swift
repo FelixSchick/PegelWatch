@@ -7,8 +7,6 @@ class StationStore {
 
     static let shared = StationStore()
 
-    // MARK: - State
-
     var watchedStations: [WatchedStation] = [] {
         didSet {
             persist()
@@ -19,39 +17,29 @@ class StationStore {
     var isRefreshing: Bool = false
     var lastError: String?
 
-    // MARK: - Init
-
     init() {
         load()
         observeICloudChanges()
     }
 
-    // MARK: - Watchlist Management
+    // MARK: - Watchlist
 
     func add(_ station: WatchedStation) {
         guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
         watchedStations.append(station)
-        
-        //refresh
-        Task.init {
-            await StationStore.shared.refreshAll()
-        }
+        Task { await StationStore.shared.refreshAll() }
     }
 
     func remove(id: String) {
         watchedStations.removeAll { $0.id == id }
-        
-        //refresh
-        Task.init {
-            await StationStore.shared.refreshAll()
-        }
+        Task { await StationStore.shared.refreshAll() }
     }
 
     func isWatching(_ stationID: String) -> Bool {
         watchedStations.contains { $0.id == stationID }
     }
 
-    // MARK: - Live Data Updates
+    // MARK: - Updates
 
     func updateLevel(id: String, value: Double) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { return }
@@ -111,7 +99,7 @@ class StationStore {
         watchedStations[idx].alarmHistory.removeAll()
     }
 
-    // MARK: - Refresh All
+    // MARK: - Refresh
 
     @MainActor
     func refreshAll() async {
@@ -130,40 +118,31 @@ class StationStore {
             guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
             let station = watchedStations[idx]
 
-            
-            
-            // ── Main threshold alarm ─────────────────────────────────────────
+            // Main threshold alarm
             if station.alarmEnabled, let threshold = station.alarmThreshold {
-
                 let isAbove = value >= threshold
-            
                 await LiveActivityManager.shared.update(station: watchedStations[idx])
+
                 if isAbove && !station.alarmTriggered {
-                    // First crossing upward: fire once
                     NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
                     watchedStations[idx].alarmTriggered = true
                     watchedStations[idx].lastNotifiedAt = Date()
                     watchedStations[idx].alarmHistory.append(AlarmEvent(
-                        triggeredAt: Date(), alarmLevel: station.alarmLevel, level: value, threshold: threshold,
-                        label: "Alarm", kind: .triggered
+                        triggeredAt: Date(), alarmLevel: station.alarmLevel,
+                        level: value, threshold: threshold, label: "Alarm", kind: .triggered
                     ))
-                    
-
                 } else if !isAbove && station.alarmTriggered {
-                    // Recovered: reset flag + record
                     watchedStations[idx].alarmTriggered = false
                     watchedStations[idx].alarmHistory.append(AlarmEvent(
                         triggeredAt: Date(), level: value, threshold: threshold,
                         label: "Entwarnung", kind: .recovered
                     ))
-                    
                     await LiveActivityManager.shared.update(station: watchedStations[idx])
                 }
             }
 
-            // ── Custom alarms ────────────────────────────────────────────────
+            // Custom alarms
             for alarm in station.sortedCustomAlarms where alarm.notificationsEnabled {
-                print("Test 2")
                 let key     = alarm.id.uuidString
                 let isAbove = value >= alarm.threshold
                 let wasAbove = station.customAlarmTriggered[key] ?? false
@@ -190,8 +169,7 @@ class StationStore {
     }
 
     // MARK: - Persistence
-    // Primary: iCloud KV (syncs across devices)
-    // Mirror:  App Group UserDefaults (widget extension reads from here)
+    // Primary: iCloud KV (syncs across devices), mirror: App Group (widget reads here)
 
     private let appGroup   = "group.de.felixschick.pegelwatch"
     private let storageKey = "de.felixschick.pegelwatch.watched_stations"
@@ -204,14 +182,12 @@ class StationStore {
     }
 
     private func load() {
-        // Prefer iCloud KV (most up-to-date across devices)
         if let data    = NSUbiquitousKeyValueStore.default.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data) {
             watchedStations = decoded
             UserDefaults(suiteName: appGroup)?.set(data, forKey: storageKey)
             return
         }
-        // Fall back to App Group
         if let data    = UserDefaults(suiteName: appGroup)?.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode([WatchedStation].self, from: data) {
             watchedStations = decoded

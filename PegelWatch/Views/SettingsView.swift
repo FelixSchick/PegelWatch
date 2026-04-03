@@ -4,7 +4,6 @@ import UserNotifications
 struct SettingsView: View {
 
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var refreshInterval: Int = 15
     @State private var showResetConfirm: Bool = false
     @State private var store = StationStore.shared
     
@@ -19,7 +18,6 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 notificationSection
-                refreshSection
                 aboutSection
                 dangerSection
             }
@@ -73,25 +71,11 @@ struct SettingsView: View {
         }
     }
 
-    private var refreshSection: some View {
-        Section {
-            Picker("Aktualisierungsintervall", selection: $refreshInterval) {
-                ForEach(refreshIntervalOptions, id: \.self) { interval in
-                    Text("\(interval) Minuten").tag(interval)
-                }
-            }
-        } header: {
-            Text("Hintergrund-Aktualisierung")
-        } footer: {
-            Text("iOS begrenzt Hintergrund-Aktualisierungen je nach Nutzungsverhalten. Das Intervall ist ein Richtwert.").onTapGesture {
-                handleTap()
-            }
-        }
-    }
-
     private var aboutSection: some View {
         Section("Über PegelWatch") {
-            LabeledContent("Version", value: appVersion)
+            LabeledContent("Version", value: appVersion).onTapGesture {
+                handleTap()
+            }
             LabeledContent("Datenquelle", value: "PegelOnline WSV")
             Link(
                 "pegelonline.wsv.de",
