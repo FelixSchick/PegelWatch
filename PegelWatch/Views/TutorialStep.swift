@@ -1,15 +1,12 @@
+//
+//  TutorialStep.swift
+//  PegelWatch
+//
+//  Created by Felix Schick on 10.04.26.
+//
+
+
 import SwiftUI
-
-// MARK: - Tutorial Entry Point
-// Zeige das Tutorial beim ersten App-Start.
-// In PegelWatchApp.swift (oder ContentView.swift) einfach so einbinden:
-//
-//   @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
-//
-//   .sheet(isPresented: .constant(!hasSeenTutorial)) {
-//       TutorialView(onFinish: { hasSeenTutorial = true })
-//   }
-
 // MARK: - Models
 
 private struct TutorialStep: Identifiable {

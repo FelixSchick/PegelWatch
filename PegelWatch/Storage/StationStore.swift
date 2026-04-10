@@ -27,7 +27,9 @@ class StationStore {
     func add(_ station: WatchedStation) {
         guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
         watchedStations.append(station)
-        Task { await StationStore.shared.refreshAll() }
+        Task {
+            await StationStore.shared.refreshAll()
+        }
     }
 
     func remove(id: String) {
@@ -111,7 +113,24 @@ class StationStore {
         let ids = watchedStations.map { $0.id }
         guard !ids.isEmpty else { return }
 
-        let levels = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+        let (levels, noDataIDs) = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+
+        // Mark stations that provide no data
+        for id in noDataIDs {
+            guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
+            if !watchedStations[idx].noDataAvailable {
+                watchedStations[idx].noDataAvailable = true
+                print("[PegelWatch] ⚠️ \(id) liefert keine Daten – Station als inaktiv markiert")
+            }
+        }
+
+        // Clear noData flag if the station now delivers data
+        for id in levels.keys {
+            guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
+            if watchedStations[idx].noDataAvailable {
+                watchedStations[idx].noDataAvailable = false
+            }
+        }
 
         for (id, value) in levels {
             updateLevel(id: id, value: value)

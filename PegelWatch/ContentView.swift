@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct ContentView: View {
+    
+    @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
+    
     var body: some View {
         TabView {
             WatchlistView()
@@ -9,13 +12,15 @@ struct ContentView: View {
                 }
             StationSearchView()
                 .tabItem {
-                    Label("Suchen", systemImage: "magnifyingglass")
+                    Label("Hinzufügen", systemImage: "plus.viewfinder")
                 }
 
             SettingsView()
                 .tabItem {
                     Label("Einstellungen", systemImage: "gear")
                 }
-        }
+        }.sheet(isPresented: .constant(!hasSeenTutorial)) {
+                   TutorialView(onFinish: { hasSeenTutorial = true })
+               }
     }
 }

@@ -5,7 +5,7 @@ import WidgetKit
 
 @main
 struct PegelWatchApp: App {
-
+    
     init() {
         registerBackgroundTasks()
     }

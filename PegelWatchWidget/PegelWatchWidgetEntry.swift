@@ -36,10 +36,10 @@ private func loadAllStationsFromDefaults() -> [WatchedStation] {
 private func fetchAndUpdate(_ stations: [WatchedStation]) async -> [WatchedStation] {
     let ids = stations.map { $0.id }
     guard !ids.isEmpty else { return stations }
-    let levels = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+    let result = await PegelOnlineAPI.shared.fetchLevels(for: ids)
     var updated = stations
     for i in updated.indices {
-        if let v = levels[updated[i].id] {
+        if let v = result.levels[updated[i].id] {
             updated[i].lastValue   = v
             updated[i].lastUpdated = Date()
         }

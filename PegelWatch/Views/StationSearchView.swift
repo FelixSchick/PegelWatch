@@ -167,8 +167,8 @@ struct StationSearchView: View {
             store.add(WatchedStation(from: station))
             // Immediately fetch its level
             Task {
-                let levels = await PegelOnlineAPI.shared.fetchLevels(for: [station.uuid])
-                if let value = levels[station.uuid] {
+                let result = await PegelOnlineAPI.shared.fetchLevels(for: [station.uuid])
+                if let value = result.levels[station.uuid] {
                     store.updateLevel(id: station.uuid, value: value)
                 }
             }
