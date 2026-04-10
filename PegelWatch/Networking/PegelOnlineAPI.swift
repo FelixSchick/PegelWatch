@@ -24,24 +24,29 @@ actor PegelOnlineAPI {
         return try decoder.decode(CurrentMeasurement.self, from: data).value
     }
 
-    /// Fetches levels for multiple stations concurrently. Failed stations are skipped.
-    func fetchLevels(for stationIDs: [String]) async -> [String: Double] {
-        await withTaskGroup(of: (String, Double?).self) { group in
+    /// Fetches levels for multiple stations concurrently.
+    /// Returns `levels` for stations with data and `noDataIDs` for stations the API has no measurements for (HTTP 404).
+    func fetchLevels(for stationIDs: [String]) async -> (levels: [String: Double], noDataIDs: Set<String>) {
+        await withTaskGroup(of: (String, Double?, Bool).self) { group in
             for id in stationIDs {
                 group.addTask {
                     do {
-                        return (id, try await self.fetchCurrentLevel(for: id))
+                        return (id, try await self.fetchCurrentLevel(for: id), false)
+                    } catch PegelAPIError.noData {
+                        return (id, nil, true)
                     } catch {
                         print("[PegelWatch] ❌ \(id) → \(error.localizedDescription)")
-                        return (id, nil)
+                        return (id, nil, false)
                     }
                 }
             }
-            var results: [String: Double] = [:]
-            for await (id, value) in group {
-                if let v = value { results[id] = v }
+            var levels: [String: Double] = [:]
+            var noDataIDs: Set<String> = []
+            for await (id, value, isNoData) in group {
+                if let v = value { levels[id] = v }
+                else if isNoData { noDataIDs.insert(id) }
             }
-            return results
+            return (levels, noDataIDs)
         }
     }
 
@@ -68,6 +73,7 @@ actor PegelOnlineAPI {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw PegelAPIError.invalidResponse }
+        if http.statusCode == 404 { throw PegelAPIError.noData }
         guard http.statusCode == 200 else { throw PegelAPIError.httpError(http.statusCode) }
         return data
     }
@@ -79,12 +85,15 @@ enum PegelAPIError: LocalizedError {
     case invalidURL(String)
     case invalidResponse
     case httpError(Int)
+    /// HTTP 404 – die Station stellt keine Messdaten bereit
+    case noData
 
     var errorDescription: String? {
         switch self {
         case .invalidURL(let path):  return "Ungültige URL: \(path)"
         case .invalidResponse:       return "Ungültige Server-Antwort"
         case .httpError(let code):   return "HTTP Fehler \(code)"
+        case .noData:                return "Keine Messdaten verfügbar"
         }
     }
 }

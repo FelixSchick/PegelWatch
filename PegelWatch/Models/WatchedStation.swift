@@ -25,6 +25,9 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     var alarmTriggered: Bool = false
     var lastNotifiedAt: Date?
 
+    /// `true` wenn die API für diese Station keine Messdaten bereitstellt (HTTP 404 auf /W/currentmeasurement)
+    var noDataAvailable: Bool = false
+
     var customAlarms: [CustomAlarm] = []
     var customAlarmTriggered: [String: Bool] = [:]
     var customAlarmLastNotifiedAt: [String: Date] = [:]
@@ -107,6 +110,12 @@ extension WatchedStation {
         s.alarmThreshold = 250.0
         s.lastUpdated = Date()
         s.enableCustomThreshold = true
+        return s
+    }()
+
+    static let previewNoData: WatchedStation = {
+        var s = WatchedStation(from: Station.preview)
+        s.noDataAvailable = true
         return s
     }()
 

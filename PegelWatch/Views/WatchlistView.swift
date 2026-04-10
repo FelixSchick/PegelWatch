@@ -46,6 +46,7 @@ struct WatchlistView: View {
                 NavigationLink(value: station) {
                     StationRowView(station: station)
                 }
+                .opacity(station.noDataAvailable ? 0.6 : 1.0)
             }
             .onDelete { indexSet in
                 for idx in indexSet {
@@ -63,7 +64,7 @@ struct WatchlistView: View {
         ContentUnavailableView {
             Label("Keine Stationen", systemImage: "water.waves.slash")
         } description: {
-            Text("Füge Messstationen über den Reiter \"Suchen\" hinzu.")
+            Text("Füge Messstationen über den Reiter \"Hinzufügen\" hinzu.")
         }
     }
 

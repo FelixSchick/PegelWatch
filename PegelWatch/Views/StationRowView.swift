@@ -19,10 +19,14 @@ struct StationRowView: View {
     private var alarmIndicator: some View {
         ZStack {
             Circle()
-                .fill(station.alarmLevel.color.opacity(0.15))
+                .fill(station.noDataAvailable
+                      ? Color.gray.opacity(0.15)
+                      : station.alarmLevel.color.opacity(0.15))
                 .frame(width: 36, height: 36)
-            Image(systemName: station.alarmLevel.systemImage)
-                .foregroundStyle(station.alarmLevel.color)
+            Image(systemName: station.noDataAvailable
+                  ? "antenna.radiowaves.left.and.right.slash"
+                  : station.alarmLevel.systemImage)
+                .foregroundStyle(station.noDataAvailable ? .gray : station.alarmLevel.color)
                 .font(.system(size: 16, weight: .semibold))
         }
     }
@@ -46,7 +50,14 @@ struct StationRowView: View {
 
     private var levelDisplay: some View {
         VStack(alignment: .trailing, spacing: 2) {
-            if let value = station.lastValue {
+            if station.noDataAvailable {
+                Label("Keine Daten", systemImage: "antenna.radiowaves.left.and.right.slash")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.quaternary, in: Capsule())
+            } else if let value = station.lastValue {
                 Text("\(Int(value)) cm")
                     .font(.title3.bold().monospacedDigit())
                     .foregroundStyle(station.alarmLevel == .normal ? .primary : station.alarmLevel.color)
@@ -74,5 +85,6 @@ struct StationRowView: View {
     List {
         StationRowView(station: .preview)
         StationRowView(station: .previewAlarming)
+        StationRowView(station: .previewNoData)
     }
 }

@@ -8,6 +8,8 @@ struct StationDetailView: View {
 
     @State private var showThresholdEditor = false
     @State private var thresholdInput: String = ""
+    
+    @Environment(\.dismiss) private var dismiss
 
     // Custom threshold levels — values are upper bounds (e.g. normal = value < normalLevel)
     @State private var showCustomThresholdEditor = false
@@ -31,6 +33,9 @@ struct StationDetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                if liveStation.noDataAvailable {
+                    noDataBanner
+                }
                 levelGauge
                 historyChart
                 metaInfo
@@ -61,6 +66,32 @@ struct StationDetailView: View {
         .sheet(isPresented: $showHistory) { AlarmHistoryView(station: liveStation) }
     }
 
+    // MARK: - No Data Banner
+
+    private var noDataBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                .font(.title2)
+                .foregroundStyle(.gray)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Keine Daten verfügbar")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                Text("Die API stellt für diese Messstation aktuell keine Pegeldaten bereit. Alarme sind deaktiviert.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.gray.opacity(0.25), lineWidth: 1)
+        )
+    }
+
     // MARK: - Level Gauge
 
     private var levelGauge: some View {
@@ -72,7 +103,7 @@ struct StationDetailView: View {
                         .foregroundStyle(liveStation.alarmLevel.color)
                         .contentTransition(.numericText())
                 } else {
-                    Text("–")
+                    Text("N/A")
                         .font(.system(size: 72, weight: .bold, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
@@ -262,6 +293,7 @@ struct StationDetailView: View {
     private var removeButton: some View {
         Button(role: .destructive) {
             store.remove(id: station.id)
+            dismiss()
         } label: {
             Label("Station entfernen", systemImage: "trash")
                 .frame(maxWidth: .infinity)
