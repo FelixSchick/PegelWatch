@@ -20,8 +20,6 @@ final class LiveActivityManager {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard let level = station.lastValue else { return }
 
-        await endAll()
-        
         switch station.alarmLevel {
         case .normal:
             await endStandard(for: station, recovered: false)
@@ -29,7 +27,6 @@ final class LiveActivityManager {
         case .warning, .danger:
             await upsertStandard(station: station, level: level)
             await endCritical(for: station, recovered: true)
-
         case .critical:
             await endStandard(for: station, recovered: false)
             await upsertCritical(station: station, level: level)

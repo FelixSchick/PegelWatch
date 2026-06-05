@@ -12,6 +12,12 @@ actor PegelOnlineAPI {
         return d
     }()
 
+    private let historyDecoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
+
     // MARK: - Public API
 
     func fetchAllStations() async throws -> [Station] {
@@ -50,11 +56,14 @@ actor PegelOnlineAPI {
         }
     }
 
+    /// Fetches the last 30 days of measurements — the maximum range shown in the chart.
     func fetchAllLevels(for stationUUID: String) async throws -> [(timestamp: Date, value: Double)] {
-        let data = try await get(url: makeURL(path: "/stations/\(stationUUID)/W/measurements.json"))
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return try d.decode([APILevelMeasurement].self, from: data).map { ($0.timestamp, $0.value) }
+        let start = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-30 * 24 * 3600))
+        let data = try await get(url: makeURL(
+            path: "/stations/\(stationUUID)/W/measurements.json",
+            queryItems: [URLQueryItem(name: "start", value: start)]
+        ))
+        return try historyDecoder.decode([APILevelMeasurement].self, from: data).map { ($0.timestamp, $0.value) }
     }
 
     // MARK: - Private

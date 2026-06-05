@@ -5,41 +5,14 @@ struct StationSearchView: View {
     @State private var store = StationStore.shared
     @State private var allStations: [Station] = []
     @State private var searchText: String = ""
+    @State private var debouncedSearch: String = ""
     @State private var isLoading: Bool = false
     @State private var loadError: String?
     @State private var selectedRegion: String = "Alle"
 
-    // Filtered results — computed from search text and region
-    private var filteredStations: [Station] {
-        var result = allStations
-
-        if selectedRegion != "Alle" {
-            result = result.filter { $0.water.shortname == selectedRegion }
-        }
-
-        if !searchText.isEmpty {
-            let query = searchText.uppercased()
-            result = result.filter {
-                $0.shortname.contains(query) ||
-                $0.longname.uppercased().contains(query) ||
-                $0.water.shortname.contains(query) ||
-                $0.water.longname.uppercased().contains(query) ||
-                $0.agency.uppercased().contains(query)
-            }
-        }
-        
-        result.sort {
-            $0.km ?? 0.0 < $1.km ?? 0.0
-        }
-
-        return result
-    }
-
-    // All unique water names for the filter picker
-    private var availableWaters: [String] {
-        let names = Set(allStations.map { $0.water.shortname }).sorted()
-        return ["Alle"] + names
-    }
+    // Cached values — recomputed only when their inputs change, not on every render
+    @State private var availableWaters: [String] = ["Alle"]
+    @State private var filteredStations: [Station] = []
 
     var body: some View {
         NavigationStack {
@@ -59,10 +32,19 @@ struct StationSearchView: View {
                 prompt: "Station oder Gewässer suchen"
             )
             .task {
-                // Load once — all ~4000 stations
                 guard allStations.isEmpty else { return }
                 await loadStations()
             }
+            // Debounce: wait 250 ms after the last keystroke before filtering
+            .onChange(of: searchText) { _, new in
+                Task {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard searchText == new else { return }
+                    debouncedSearch = new
+                }
+            }
+            .onChange(of: debouncedSearch) { updateFilteredStations() }
+            .onChange(of: selectedRegion)  { updateFilteredStations() }
         }
     }
 
@@ -96,7 +78,7 @@ struct StationSearchView: View {
 
     private var searchResultsList: some View {
         List {
-            if searchText.isEmpty {
+            if debouncedSearch.isEmpty {
                 Section {
                     Picker("Gewässer", selection: $selectedRegion) {
                         ForEach(availableWaters, id: \.self) { Text($0).tag($0) }
@@ -106,8 +88,7 @@ struct StationSearchView: View {
             }
 
             Section(header: Text(resultHeader)) {
-                if selectedRegion != "Alle" && searchText.isEmpty {
-                    // River visualization — takes the full section space
+                if selectedRegion != "Alle" && debouncedSearch.isEmpty {
                     RiverStationView(
                         stations: filteredStations,
                         isWatched: { store.isWatching($0) },
@@ -132,12 +113,36 @@ struct StationSearchView: View {
     }
 
     private var resultHeader: String {
-        let count = min(filteredStations.count, 200)
         let total = filteredStations.count
+        let shown = min(total, 200)
         if total > 200 {
-            return "\(count) von \(total) Stationen (suche verfeinern)"
+            return "\(shown) von \(total) Stationen (suche verfeinern)"
         }
         return "\(total) Station\(total == 1 ? "" : "en")"
+    }
+
+    // MARK: - Filtering
+
+    private func updateFilteredStations() {
+        var result = allStations
+
+        if selectedRegion != "Alle" {
+            result = result.filter { $0.water.shortname == selectedRegion }
+        }
+
+        if !debouncedSearch.isEmpty {
+            let query = debouncedSearch.uppercased()
+            result = result.filter {
+                $0.shortname.contains(query) ||
+                $0.longname.uppercased().contains(query) ||
+                $0.water.shortname.contains(query) ||
+                $0.water.longname.uppercased().contains(query) ||
+                $0.agency.uppercased().contains(query)
+            }
+        }
+
+        result.sort { $0.km ?? 0.0 < $1.km ?? 0.0 }
+        filteredStations = result
     }
 
     // MARK: - Actions
@@ -146,14 +151,16 @@ struct StationSearchView: View {
         isLoading = true
         loadError = nil
         do {
-            allStations = try await PegelOnlineAPI.shared.fetchAllStations()
-            // Sort alphabetically by water, then by station name
-            allStations.sort {
+            var stations = try await PegelOnlineAPI.shared.fetchAllStations()
+            stations.sort {
                 if $0.water.shortname != $1.water.shortname {
                     return $0.water.shortname < $1.water.shortname
                 }
                 return $0.shortname < $1.shortname
             }
+            allStations = stations
+            availableWaters = ["Alle"] + Set(stations.map { $0.water.shortname }).sorted()
+            updateFilteredStations()
         } catch {
             loadError = error.localizedDescription
         }
@@ -165,7 +172,6 @@ struct StationSearchView: View {
             store.remove(id: station.id)
         } else {
             store.add(WatchedStation(from: station))
-            // Immediately fetch its level
             Task {
                 let result = await PegelOnlineAPI.shared.fetchLevels(for: [station.uuid])
                 if let value = result.levels[station.uuid] {
@@ -186,7 +192,6 @@ struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Water body icon chip
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isWatched ? Color.accentColor.opacity(0.12) : Color.blue.opacity(0.08))

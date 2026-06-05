@@ -34,8 +34,10 @@ class StationStore {
     }
 
     func remove(id: String) {
+        if let station = watchedStations.first(where: { $0.id == id }) {
+            Task { await LiveActivityManager.shared.end(for: station) }
+        }
         watchedStations.removeAll { $0.id == id }
-        Task { await StationStore.shared.refreshAll() }
     }
 
     func isWatching(_ stationID: String) -> Bool {
@@ -120,75 +122,87 @@ class StationStore {
 
         let (levels, noDataIDs) = await PegelOnlineAPI.shared.fetchLevels(for: ids)
 
-        // Mark stations that provide no data
+        // Build a single mutated snapshot — avoids triggering didSet (persist + widget reload)
+        // for every individual field mutation. The single assignment at the end is the only I/O.
+        var updated = watchedStations
+
         for id in noDataIDs {
-            guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
-            if !watchedStations[idx].noDataAvailable {
-                watchedStations[idx].noDataAvailable = true
+            guard let idx = updated.firstIndex(where: { $0.id == id }) else { continue }
+            if !updated[idx].noDataAvailable {
+                updated[idx].noDataAvailable = true
                 print("[PegelWatch] ⚠️ \(id) liefert keine Daten – Station als inaktiv markiert")
             }
         }
 
-        // Clear noData flag if the station now delivers data
         for id in levels.keys {
-            guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
-            if watchedStations[idx].noDataAvailable {
-                watchedStations[idx].noDataAvailable = false
+            guard let idx = updated.firstIndex(where: { $0.id == id }) else { continue }
+            if updated[idx].noDataAvailable {
+                updated[idx].noDataAvailable = false
             }
         }
 
         for (id, value) in levels {
-            updateLevel(id: id, value: value)
-            guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { continue }
-            let station = watchedStations[idx]
+            guard let idx = updated.firstIndex(where: { $0.id == id }) else { continue }
+
+            updated[idx].previousValue = updated[idx].lastValue
+            updated[idx].lastValue     = value
+            updated[idx].lastUpdated   = Date()
+
+            let station = updated[idx]
 
             // Main threshold alarm
             if station.alarmEnabled, let threshold = station.alarmThreshold {
                 let isAbove = value >= threshold
-                await LiveActivityManager.shared.update(station: watchedStations[idx])
 
                 if isAbove && !station.alarmTriggered {
                     NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
-                    watchedStations[idx].alarmTriggered = true
-                    watchedStations[idx].lastNotifiedAt = Date()
-                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                    updated[idx].alarmTriggered  = true
+                    updated[idx].lastNotifiedAt  = Date()
+                    updated[idx].alarmHistory.append(AlarmEvent(
                         triggeredAt: Date(), alarmLevel: station.alarmLevel,
                         level: value, threshold: threshold, label: "Alarm", kind: .triggered
                     ))
                 } else if !isAbove && station.alarmTriggered {
-                    watchedStations[idx].alarmTriggered = false
-                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                    updated[idx].alarmTriggered = false
+                    updated[idx].alarmHistory.append(AlarmEvent(
                         triggeredAt: Date(), level: value, threshold: threshold,
                         label: "Entwarnung", kind: .recovered
                     ))
-                    await LiveActivityManager.shared.update(station: watchedStations[idx])
                 }
             }
 
             // Custom alarms
             for alarm in station.sortedCustomAlarms where alarm.notificationsEnabled {
-                let key     = alarm.id.uuidString
-                let isAbove = value >= alarm.threshold
+                let key      = alarm.id.uuidString
+                let isAbove  = value >= alarm.threshold
                 let wasAbove = station.customAlarmTriggered[key] ?? false
 
                 if isAbove && !wasAbove {
                     NotificationManager.shared.sendCustomAlarmNotification(
                         for: station, alarm: alarm, currentValue: value
                     )
-                    watchedStations[idx].customAlarmTriggered[key]      = true
-                    watchedStations[idx].customAlarmLastNotifiedAt[key] = Date()
-                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                    updated[idx].customAlarmTriggered[key]      = true
+                    updated[idx].customAlarmLastNotifiedAt[key] = Date()
+                    updated[idx].alarmHistory.append(AlarmEvent(
                         triggeredAt: Date(), level: value, threshold: alarm.threshold,
                         label: alarm.name, kind: .triggered
                     ))
                 } else if !isAbove && wasAbove {
-                    watchedStations[idx].customAlarmTriggered[key] = false
-                    watchedStations[idx].alarmHistory.append(AlarmEvent(
+                    updated[idx].customAlarmTriggered[key] = false
+                    updated[idx].alarmHistory.append(AlarmEvent(
                         triggeredAt: Date(), level: value, threshold: alarm.threshold,
                         label: alarm.name, kind: .recovered
                     ))
                 }
             }
+        }
+
+        // Single assignment — triggers persist + widget reload exactly once
+        watchedStations = updated
+
+        // Update live activities after the state is committed
+        for station in watchedStations {
+            await LiveActivityManager.shared.update(station: station)
         }
     }
 
