@@ -18,6 +18,7 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     var alarmThresholdDangerLevel: Double?
 
     var lastValue: Double?
+    var previousValue: Double?
     var lastValueUnit: String = "cm"
     var lastUpdated: Date?
 
@@ -42,6 +43,11 @@ struct WatchedStation: Identifiable, Codable, Hashable {
 
     var displayName: String {
         longname.isEmpty ? shortname : longname.capitalized
+    }
+
+    var trend: Double? {
+        guard let current = lastValue, let previous = previousValue else { return nil }
+        return current - previous
     }
 
     var sortedCustomAlarms: [CustomAlarm] {

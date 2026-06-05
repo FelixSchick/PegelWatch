@@ -186,6 +186,16 @@ struct SearchResultRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // Water body icon chip
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isWatched ? Color.accentColor.opacity(0.12) : Color.blue.opacity(0.08))
+                    .frame(width: 36, height: 36)
+                Image(systemName: "water.waves")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isWatched ? .accentColor : .blue.opacity(0.7))
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(station.shortname)
                     .font(.headline)
@@ -193,10 +203,8 @@ struct SearchResultRow: View {
                     Text(station.water.longname.isEmpty ? station.water.shortname : station.water.longname)
                         .font(.caption)
                     if let km = station.km {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text("km \(Int(km))")
-                            .font(.caption)
+                        Text("·").foregroundStyle(.tertiary)
+                        Text("km \(Int(km))").font(.caption)
                     }
                 }
                 .foregroundStyle(.secondary)

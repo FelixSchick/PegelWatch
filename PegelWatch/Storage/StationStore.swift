@@ -16,6 +16,7 @@ class StationStore {
 
     var isRefreshing: Bool = false
     var lastError: String?
+    var lastRefreshed: Date?
 
     init() {
         load()
@@ -45,8 +46,9 @@ class StationStore {
 
     func updateLevel(id: String, value: Double) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { return }
-        watchedStations[idx].lastValue   = value
-        watchedStations[idx].lastUpdated = Date()
+        watchedStations[idx].previousValue = watchedStations[idx].lastValue
+        watchedStations[idx].lastValue     = value
+        watchedStations[idx].lastUpdated   = Date()
     }
 
     func setThreshold(id: String, threshold: Double?) {
@@ -108,7 +110,10 @@ class StationStore {
         guard !isRefreshing else { return }
         isRefreshing = true
         lastError = nil
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            lastRefreshed = Date()
+        }
 
         let ids = watchedStations.map { $0.id }
         guard !ids.isEmpty else { return }

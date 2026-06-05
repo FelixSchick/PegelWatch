@@ -95,27 +95,54 @@ struct StationDetailView: View {
     // MARK: - Level Gauge
 
     private var levelGauge: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                if let value = liveStation.lastValue {
-                    Text("\(Int(value))")
-                        .font(.system(size: 72, weight: .bold, design: .rounded))
-                        .foregroundStyle(liveStation.alarmLevel.color)
-                        .contentTransition(.numericText())
-                } else {
-                    Text("N/A")
-                        .font(.system(size: 72, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 16) {
+            HStack(alignment: .center, spacing: 24) {
+                // Circular arc gauge
+                if let value = liveStation.lastValue, let threshold = liveStation.alarmThreshold {
+                    ArcGaugeView(value: value, threshold: threshold, color: liveStation.alarmLevel.color)
+                        .frame(width: 110, height: 110)
                 }
-                Text("cm").font(.title2).foregroundStyle(.secondary).padding(.bottom, 8)
-            }
 
-            Label(liveStation.alarmLevel.label, systemImage: liveStation.alarmLevel.systemImage)
-                .font(.subheadline.bold())
-                .foregroundStyle(liveStation.alarmLevel.color)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(liveStation.alarmLevel.color.opacity(0.12), in: Capsule())
+                // Value + status
+                VStack(alignment: liveStation.alarmThreshold != nil ? .leading : .center, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        if let value = liveStation.lastValue {
+                            Text("\(Int(value))")
+                                .font(.system(size: 56, weight: .bold, design: .rounded))
+                                .foregroundStyle(liveStation.alarmLevel.color)
+                                .contentTransition(.numericText())
+                        } else {
+                            Text("N/A")
+                                .font(.system(size: 56, weight: .bold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("cm")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .padding(.bottom, 4)
+                    }
+
+                    Label(liveStation.alarmLevel.label, systemImage: liveStation.alarmLevel.systemImage)
+                        .font(.caption.bold())
+                        .foregroundStyle(liveStation.alarmLevel.color)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(liveStation.alarmLevel.color.opacity(0.12), in: Capsule())
+
+                    if let updated = liveStation.lastUpdated {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock")
+                            Text(updated, style: .relative)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(liveStation.isStale ? .orange : .secondary)
+                    }
+                }
+
+                if liveStation.alarmThreshold == nil {
+                    Spacer()
+                }
+            }
 
             if let value = liveStation.lastValue, let threshold = liveStation.alarmThreshold {
                 VStack(spacing: 4) {
@@ -124,50 +151,106 @@ struct StationDetailView: View {
                     HStack {
                         Text("0 cm")
                         Spacer()
-                        Text("Schwelle: \(Int(threshold)) cm").foregroundStyle(liveStation.alarmLevel.color)
+                        Text("Schwelle: \(Int(threshold)) cm")
+                            .foregroundStyle(liveStation.alarmLevel.color)
                         Spacer()
                         Text("\(Int(threshold * 1.5)) cm")
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
-            }
-
-            if let updated = liveStation.lastUpdated {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                    Text("Aktualisiert \(updated, style: .relative)")
-                }
-                .font(.caption)
-                .foregroundStyle(liveStation.isStale ? .orange : .secondary)
             }
         }
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    // MARK: - Arc Gauge
+
+    private struct ArcGaugeView: View {
+        let value: Double
+        let threshold: Double
+        let color: Color
+
+        private var fraction: Double { min(value / (threshold * 1.5), 1.0) }
+
+        // Fraction of arc where the threshold sits (always 2/3 since total = threshold*1.5)
+        private let thresholdFraction = 2.0 / 3.0
+
+        var body: some View {
+            ZStack {
+                // Track
+                Circle()
+                    .trim(from: 0.15, to: 0.85)
+                    .stroke(color.opacity(0.10), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .rotationEffect(.degrees(90))
+
+                // Filled progress
+                Circle()
+                    .trim(from: 0.15, to: 0.15 + 0.7 * fraction)
+                    .stroke(
+                        LinearGradient(
+                            colors: [color.opacity(0.6), color],
+                            startPoint: .leading, endPoint: .trailing
+                        ),
+                        style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(90))
+                    .animation(.spring(duration: 0.6), value: fraction)
+
+                // Threshold tick — drawn via Canvas so angle math is straightforward
+                Canvas { ctx, size in
+                    let cx = size.width / 2
+                    let cy = size.height / 2
+                    let r = min(cx, cy) - 5
+                    let startRad = 0.15 * 2 * Double.pi + .pi / 2
+                    let angle = startRad + 0.7 * thresholdFraction * 2 * Double.pi
+                    var path = Path()
+                    path.move(to: CGPoint(x: cx + (r - 8) * cos(angle), y: cy + (r - 8) * sin(angle)))
+                    path.addLine(to: CGPoint(x: cx + (r + 2) * cos(angle), y: cy + (r + 2) * sin(angle)))
+                    ctx.stroke(path, with: .color(color.opacity(0.55)), lineWidth: 2.5)
+                }
+
+                // Center label
+                VStack(spacing: 1) {
+                    Text("\(Int((value / threshold) * 100))%")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(color)
+                        .contentTransition(.numericText())
+                    Text("der\nSchwelle")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+        }
+    }
+
     // MARK: - Meta Info
 
     private var metaInfo: some View {
         VStack(spacing: 0) {
-            infoRow(label: "Gewässer", value: liveStation.waterDisplayName)
-            Divider().padding(.leading)
-            infoRow(label: "Behörde", value: liveStation.agency)
+            infoRow(label: "Gewässer", icon: "water.waves", value: liveStation.waterDisplayName)
+            Divider().padding(.leading, 44)
+            infoRow(label: "Behörde", icon: "building.2", value: liveStation.agency)
             if let km = liveStation.km {
-                Divider().padding(.leading)
-                infoRow(label: "Flusskilometer", value: String(format: "%.1f km", km))
+                Divider().padding(.leading, 44)
+                infoRow(label: "Flusskilometer", icon: "arrow.left.and.right", value: String(format: "%.1f km", km))
             }
             if let lat = liveStation.latitude, let lon = liveStation.longitude {
-                Divider().padding(.leading)
-                infoRow(label: "Koordinaten", value: String(format: "%.4f°, %.4f°", lat, lon))
+                Divider().padding(.leading, 44)
+                infoRow(label: "Koordinaten", icon: "location", value: String(format: "%.4f°, %.4f°", lat, lon))
             }
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private func infoRow(label: String, value: String) -> some View {
-        HStack {
+    private func infoRow(label: String, icon: String, value: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
             Text(label).foregroundStyle(.secondary)
             Spacer()
             Text(value).fontWeight(.medium)
@@ -281,8 +364,9 @@ struct StationDetailView: View {
     }
 
     private func openCustomThresholdEditor() {
-        if let v = Double(thresholdInput), v > 0 { warningThresholdInput = v }
         if let n = liveStation.alarmThresholdNormalLevel { normalThresholdInput = n }
+        if let w = liveStation.alarmThresholdWarningLevel { warningThresholdInput = w }
+        else if let t = liveStation.alarmThreshold, t > 0 { warningThresholdInput = t }
         if let d = liveStation.alarmThresholdDangerLevel { dangerThresholdInput = d }
         customThresholdValueChanged = false
         showCustomThresholdEditor = true
@@ -488,6 +572,7 @@ struct StationDetailView: View {
     private var historyChart: some View {
         LevelChartView(
             history: levelHistory,
+            isLoading: isLoadingHistory,
             threshold: liveStation.alarmThreshold,
             alarmColor: liveStation.alarmLevel.color,
             liveStation: liveStation
@@ -496,6 +581,7 @@ struct StationDetailView: View {
 
     struct LevelChartView: View {
         let history: [(timestamp: Date, value: Double)]
+        var isLoading: Bool = false
         let threshold: Double?
         let alarmColor: Color
         let liveStation: WatchedStation
@@ -506,6 +592,16 @@ struct StationDetailView: View {
         private var visibleHistory: [(timestamp: Date, value: Double)] {
             let cutoff = Calendar.current.date(byAdding: .day, value: -visibleDays, to: Date())!
             return history.filter { $0.timestamp >= cutoff }
+        }
+
+        private var stats: (min: Double, max: Double, avg: Double)? {
+            guard !visibleHistory.isEmpty else { return nil }
+            let values = visibleHistory.map(\.value)
+            return (
+                min: values.min()!,
+                max: values.max()!,
+                avg: values.reduce(0, +) / Double(values.count)
+            )
         }
 
         private func nearest(to date: Date) -> (timestamp: Date, value: Double)? {
@@ -633,9 +729,53 @@ struct StationDetailView: View {
                 }
                 .chartXSelection(value: $selectedDate)
                 .frame(height: 220)
+                .overlay {
+                    if isLoading {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(.regularMaterial)
+                        ProgressView()
+                    } else if visibleHistory.isEmpty && !history.isEmpty {
+                        Text("Keine Daten für diesen Zeitraum")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if history.isEmpty && !isLoading {
+                        VStack(spacing: 6) {
+                            Image(systemName: "chart.xyaxis.line")
+                                .font(.title2)
+                                .foregroundStyle(.quaternary)
+                            Text("Keine Verlaufsdaten")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+
+            if let s = stats {
+                HStack(spacing: 0) {
+                    statCell(label: "Min", value: "\(Int(s.min)) cm", color: .blue)
+                    Divider().frame(height: 28)
+                    statCell(label: "Ø", value: "\(Int(s.avg)) cm", color: .secondary)
+                    Divider().frame(height: 28)
+                    statCell(label: "Max", value: "\(Int(s.max)) cm", color: .red)
+                }
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            }
             }
             .padding()
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        }
+
+        private func statCell(label: String, value: String, color: Color) -> some View {
+            VStack(spacing: 2) {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(value)
+                    .font(.caption.monospacedDigit().bold())
+                    .foregroundStyle(color)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
         }
     }
 

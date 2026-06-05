@@ -73,15 +73,28 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section("Über PegelWatch") {
-            LabeledContent("Version", value: appVersion).onTapGesture {
-                handleTap()
+            LabeledContent {
+                Text(appVersion)
+            } label: {
+                Label("Version", systemImage: "info.circle")
             }
-            LabeledContent("Datenquelle", value: "PegelOnline WSV")
-            Link(
-                "pegelonline.wsv.de",
-                destination: URL(string: "https://pegelonline.wsv.de")!
-            )
-            LabeledContent("Beobachtete Stationen", value: "\(store.watchedStations.count)")
+            .onTapGesture { handleTap() }
+
+            LabeledContent {
+                Text("PegelOnline WSV")
+            } label: {
+                Label("Datenquelle", systemImage: "server.rack")
+            }
+
+            Link(destination: URL(string: "https://pegelonline.wsv.de")!) {
+                Label("pegelonline.wsv.de", systemImage: "globe")
+            }
+
+            LabeledContent {
+                Text("\(store.watchedStations.count)")
+            } label: {
+                Label("Beobachtete Stationen", systemImage: "eye")
+            }
         }
     }
 
