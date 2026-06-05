@@ -198,7 +198,7 @@ struct SearchResultRow: View {
                     .frame(width: 36, height: 36)
                 Image(systemName: "water.waves")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isWatched ? .accentColor : .blue.opacity(0.7))
+                    .foregroundStyle(isWatched ? Color.accentColor : Color.blue.opacity(0.7))
             }
 
             VStack(alignment: .leading, spacing: 2) {
