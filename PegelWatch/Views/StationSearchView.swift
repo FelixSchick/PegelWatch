@@ -14,6 +14,13 @@ struct StationSearchView: View {
     @State private var availableWaters: [String] = ["Alle"]
     @State private var filteredStations: [Station] = []
 
+    private static let majorWaters: Set<String> = [
+        "RHEIN", "MOSEL", "ELBE", "DONAU", "WESER", "MAIN", "NECKAR",
+        "SAALE", "SPREE", "HAVEL", "ISAR", "INN", "LAHN", "RUHR",
+        "EMS", "ODER", "SAAR", "FULDA", "WERRA", "ALLER", "LEINE",
+        "LIPPE", "MULDE", "NAHE", "TRAVE", "WARNOW", "PEENE"
+    ]
+
     var body: some View {
         NavigationStack {
             Group {
@@ -159,7 +166,8 @@ struct StationSearchView: View {
                 return $0.shortname < $1.shortname
             }
             allStations = stations
-            availableWaters = ["Alle"] + Set(stations.map { $0.water.shortname }).sorted()
+            let allWaterNames = Set(stations.map { $0.water.shortname })
+            availableWaters = ["Alle"] + allWaterNames.filter { Self.majorWaters.contains($0) }.sorted()
             updateFilteredStations()
         } catch {
             loadError = error.localizedDescription
@@ -198,7 +206,7 @@ struct SearchResultRow: View {
                     .frame(width: 36, height: 36)
                 Image(systemName: "water.waves")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isWatched ? .accentColor : .blue.opacity(0.7))
+                    .foregroundStyle(isWatched ? Color.accentColor : .blue.opacity(0.7))
             }
 
             VStack(alignment: .leading, spacing: 2) {
