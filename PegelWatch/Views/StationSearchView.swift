@@ -16,9 +16,8 @@ struct StationSearchView: View {
 
     private static let majorWaters: Set<String> = [
         "RHEIN", "MOSEL", "ELBE", "DONAU", "WESER", "MAIN", "NECKAR",
-        "SAALE", "SPREE", "HAVEL", "ISAR", "INN", "LAHN", "RUHR",
-        "EMS", "ODER", "SAAR", "FULDA", "WERRA", "ALLER", "LEINE",
-        "LIPPE", "MULDE", "NAHE", "TRAVE", "WARNOW", "PEENE"
+         "SAAR", "FULDA",
+        "SAUER", "OUR", "ALZETTE",
     ]
 
     var body: some View {
@@ -64,7 +63,7 @@ struct StationSearchView: View {
             Text("Lade alle Messstationen…")
                 .foregroundStyle(.secondary)
                 .font(.subheadline)
-            Text("(ca. 4.000 Stationen bundesweit)")
+            Text("(Deutschland & Luxemburg)")
                 .foregroundStyle(.tertiary)
                 .font(.caption)
         }
@@ -95,7 +94,7 @@ struct StationSearchView: View {
             }
 
             Section(header: Text(resultHeader)) {
-                if selectedRegion != "Alle" && debouncedSearch.isEmpty {
+                if selectedRegion != "Alle" && debouncedSearch.isEmpty && filteredStations.allSatisfy({ $0.km != nil }) {
                     RiverStationView(
                         stations: filteredStations,
                         isWatched: { store.isWatching($0) },
@@ -157,21 +156,33 @@ struct StationSearchView: View {
     private func loadStations() async {
         isLoading = true
         loadError = nil
+
+        async let germanFetch = PegelOnlineAPI.shared.fetchAllStations()
+        async let luxFetch = HeichwaasserAPI.shared.fetchAllStations()
+
+        var stations: [Station]
         do {
-            var stations = try await PegelOnlineAPI.shared.fetchAllStations()
-            stations.sort {
-                if $0.water.shortname != $1.water.shortname {
-                    return $0.water.shortname < $1.water.shortname
-                }
-                return $0.shortname < $1.shortname
-            }
-            allStations = stations
-            let allWaterNames = Set(stations.map { $0.water.shortname })
-            availableWaters = ["Alle"] + allWaterNames.filter { Self.majorWaters.contains($0) }.sorted()
-            updateFilteredStations()
+            stations = try await germanFetch
         } catch {
             loadError = error.localizedDescription
+            isLoading = false
+            return
         }
+
+        if let luxStations = try? await luxFetch {
+            stations.append(contentsOf: luxStations)
+        }
+
+        stations.sort {
+            if $0.water.shortname != $1.water.shortname {
+                return $0.water.shortname < $1.water.shortname
+            }
+            return $0.shortname < $1.shortname
+        }
+        allStations = stations
+        let allWaterNames = Set(stations.map { $0.water.shortname })
+        availableWaters = ["Alle"] + allWaterNames.filter { Self.majorWaters.contains($0) }.sorted()
+        updateFilteredStations()
         isLoading = false
     }
 
@@ -181,9 +192,16 @@ struct StationSearchView: View {
         } else {
             store.add(WatchedStation(from: station))
             Task {
-                let result = await PegelOnlineAPI.shared.fetchLevels(for: [station.uuid])
-                if let value = result.levels[station.uuid] {
-                    store.updateLevel(id: station.uuid, value: value)
+                if HeichwaasserAPI.isLuxembourgStation(station.id) {
+                    let result = await HeichwaasserAPI.shared.fetchLevels(for: [station.id])
+                    if let value = result.levels[station.id] {
+                        store.updateLevel(id: station.id, value: value)
+                    }
+                } else {
+                    let result = await PegelOnlineAPI.shared.fetchLevels(for: [station.id])
+                    if let value = result.levels[station.id] {
+                        store.updateLevel(id: station.id, value: value)
+                    }
                 }
             }
         }

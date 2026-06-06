@@ -120,7 +120,18 @@ class StationStore {
         let ids = watchedStations.map { $0.id }
         guard !ids.isEmpty else { return }
 
-        let (levels, noDataIDs) = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+        let pegelIDs = ids.filter { !HeichwaasserAPI.isLuxembourgStation($0) }
+        let luxIDs = ids.filter { HeichwaasserAPI.isLuxembourgStation($0) }
+
+        async let pegelResult = PegelOnlineAPI.shared.fetchLevels(for: pegelIDs)
+        async let luxResult = HeichwaasserAPI.shared.fetchLevels(for: luxIDs)
+
+        let (pegelData, luxData) = await (pegelResult, luxResult)
+
+        var levels = pegelData.levels
+        var noDataIDs = pegelData.noDataIDs
+        for (id, value) in luxData.levels { levels[id] = value }
+        for id in luxData.noDataIDs { noDataIDs.insert(id) }
 
         // Build a single mutated snapshot — avoids triggering didSet (persist + widget reload)
         // for every individual field mutation. The single assignment at the end is the only I/O.
