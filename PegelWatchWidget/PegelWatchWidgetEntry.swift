@@ -36,10 +36,22 @@ private func loadAllStationsFromDefaults() -> [WatchedStation] {
 private func fetchAndUpdate(_ stations: [WatchedStation]) async -> [WatchedStation] {
     let ids = stations.map { $0.id }
     guard !ids.isEmpty else { return stations }
-    let result = await PegelOnlineAPI.shared.fetchLevels(for: ids)
+
+    let pegelIDs = ids.filter { !HeichwaasserAPI.isLuxembourgStation($0) }
+    let luxIDs = ids.filter { HeichwaasserAPI.isLuxembourgStation($0) }
+
+    async let pegelResult = PegelOnlineAPI.shared.fetchLevels(for: pegelIDs)
+    async let luxResult = HeichwaasserAPI.shared.fetchLevels(for: luxIDs)
+
+    let (pegelData, luxData) = await (pegelResult, luxResult)
+
+    var levels = pegelData.levels
+    for (id, value) in luxData.levels { levels[id] = value }
+
     var updated = stations
     for i in updated.indices {
-        if let v = result.levels[updated[i].id] {
+        if let v = levels[updated[i].id] {
+            updated[i].previousValue = updated[i].lastValue
             updated[i].lastValue   = v
             updated[i].lastUpdated = Date()
         }
@@ -127,11 +139,25 @@ struct PegelWatchWidget: Widget {
             provider: PegelWatchWidgetProvider()
         ) { entry in
             SmallMediumWidgetView(entry: entry)
-                .containerBackground(for: .widget) { Color(.systemBackground) }
+                .containerBackground(for: .widget) {
+                    ContainerRelativeShape()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    (entry.primary?.alarmLevel ?? .normal).color.opacity(
+                                        entry.primary?.alarmLevel == .normal ? 0.04 : 0.10
+                                    ),
+                                    Color(.systemBackground)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
         }
         .configurationDisplayName("PegelWatch")
         .description("Aktuelle Wasserstände im Blick.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
 
@@ -159,15 +185,17 @@ struct SmallMediumWidgetView: View {
 
     var body: some View {
         switch family {
-        case .systemMedium: MediumWidgetView(entry: entry)
-        default:            SmallWidgetView(entry: entry)
+        case .accessoryCircular:    AccessoryCircularView(entry: entry)
+        case .accessoryRectangular: AccessoryRectangularView(entry: entry)
+        case .accessoryInline:      AccessoryInlineView(entry: entry)
+        case .systemMedium:         MediumWidgetView(entry: entry)
+        default:                    SmallWidgetView(entry: entry)
         }
     }
 }
 
 // ────────────────────────────────────────────────────────────────
 // MARK: - Small Widget
-// Shows the primary (first) station: hero number + alarm badge
 // ────────────────────────────────────────────────────────────────
 
 struct SmallWidgetView: View {
@@ -175,255 +203,160 @@ struct SmallWidgetView: View {
 
     var body: some View {
         if let station = entry.primary {
-            filledView(station: station)
-        } else {
-            emptyView
-        }
-    }
-
-    private func filledView(station: WatchedStation) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-
-            // ── Header ──────────────────────────────────
-            HStack(spacing: 6) {
-                Image(systemName: "water.waves")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(station.displayName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
                 Text(station.waterDisplayName)
-                    .font(.caption2.weight(.semibold))
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-            }
 
-            Spacer()
+                Spacer()
 
-            // ── Hero level ──────────────────────────────
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(station.lastValue.map { "\(Int($0))" } ?? "–")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundStyle(station.alarmLevel.color)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                Text("cm")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 6)
-            }
-
-            // ── Station name ────────────────────────────
-            Text(station.displayName)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Spacer(minLength: 6)
-
-            // ── Alarm badge ─────────────────────────────
-            alarmBadge(station: station)
-
-            // ── Staleness dot ───────────────────────────
-            if station.isStale {
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(.orange)
-                        .frame(width: 5, height: 5)
-                    Text("Veraltet")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(station.lastValue.map { "\(Int($0))" } ?? "–")
+                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .foregroundStyle(station.alarmLevel.color)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                    Text("cm")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let trend = station.trend, abs(trend) > 0.5 {
+                        Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
+                            .font(.caption.bold())
+                            .foregroundStyle(trend > 0 ? .red.opacity(0.8) : .green.opacity(0.8))
+                    }
                 }
-                .padding(.top, 4)
-            }
-        }
-        .padding(14)
-    }
 
-    private var emptyView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "water.waves.slash")
-                .font(.largeTitle)
-                .foregroundStyle(.quaternary)
-            Text("Keine Station")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+                Spacer(minLength: 4)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(station.alarmLevel.color)
+                        .frame(width: 6, height: 6)
+                    Text(station.alarmLevel.label)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if station.isStale {
+                        Text("Veraltet")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    } else if let updated = station.lastUpdated {
+                        Text(updated, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            .padding(14)
+        } else {
+            VStack(spacing: 8) {
+                Image(systemName: "water.waves.slash")
+                    .font(.largeTitle)
+                    .foregroundStyle(.quaternary)
+                Text("Keine Station")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 }
 
 // ────────────────────────────────────────────────────────────────
 // MARK: - Medium Widget
-// Up to 3 station rows
 // ────────────────────────────────────────────────────────────────
-
-struct MediumDetailWidgetView: View {
-    let station: WatchedStation
-
-    private var fillFraction: Double {
-        guard let v = station.lastValue, let t = station.alarmThreshold, t > 0
-        else { return 0 }
-        return min(v / (t * 1.5), 1.0)
-    }
-
-    var body: some View {
-        HStack(spacing: 16) {
-
-            // Left: big level number
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Image(systemName: "water.waves")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.blue)
-                    Text(station.waterDisplayName)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text(station.lastValue.map { "\(Int($0))" } ?? "–")
-                        .font(.system(size: 52, weight: .bold, design: .rounded))
-                        .foregroundStyle(station.alarmLevel.color)
-                        .minimumScaleFactor(0.5)
-                        .lineLimit(1)
-                    Text("cm")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.bottom, 4)
-                }
-
-                Text(station.displayName)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-            }
-
-            Divider()
-
-            // Right: threshold progress + alarm badge + updated
-            VStack(alignment: .leading, spacing: 8) {
-                Label(station.alarmLevel.label, systemImage: station.alarmLevel.systemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(station.alarmLevel.color)
-
-                if station.alarmThreshold != nil {
-                    VStack(spacing: 3) {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 3).fill(.quaternary).frame(height: 6)
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(station.alarmLevel.color)
-                                    .frame(width: geo.size.width * fillFraction, height: 6)
-                            }
-                        }
-                        .frame(height: 6)
-
-                        HStack {
-                            Text("0")
-                            Spacer()
-                            if let t = station.alarmThreshold {
-                                Text("Schwelle \(Int(t)) cm")
-                                    .foregroundStyle(station.alarmLevel.color)
-                            }
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    }
-                }
-
-                Spacer()
-
-                if let updated = station.lastUpdated {
-                    HStack(spacing: 3) {
-                        Image(systemName: "clock")
-                        Text(updated, style: .relative)
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(station.isStale ? .orange : .secondary)
-                }
-            }
-        }
-        .padding(14)
-    }
-}
-
-private struct MediumStationRow: View {
-    let station: WatchedStation
-
-    var body: some View {
-        HStack(spacing: 10) {
-
-            // Alarm indicator circle
-            ZStack {
-                Circle()
-                    .fill(station.alarmLevel.color.opacity(0.15))
-                    .frame(width: 32, height: 32)
-                Image(systemName: station.alarmLevel.systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(station.alarmLevel.color)
-            }
-
-            // Name + water
-            VStack(alignment: .leading, spacing: 2) {
-                Text(station.displayName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(station.waterDisplayName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            // Level + threshold
-            VStack(alignment: .trailing, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text(station.lastValue.map { "\(Int($0))" } ?? "–")
-                        .font(.system(.title3, design: .rounded).weight(.bold).monospacedDigit())
-                        .foregroundStyle(station.alarmLevel == .normal ? .primary : station.alarmLevel.color)
-                    Text("cm")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                if let threshold = station.alarmThreshold {
-                    Text("/ \(Int(threshold)) cm")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .padding(.vertical, 6)
-    }
-}
-
-private struct MediumEmptyView: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "water.waves.slash")
-                .font(.title2)
-                .foregroundStyle(.quaternary)
-            Text("Öffne PegelWatch\num Stationen hinzuzufügen.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .padding()
-    }
-}
 
 struct MediumWidgetView: View {
     let entry: PegelWatchWidgetEntry
 
     var body: some View {
-        if let pinned = entry.primary {
-            // Single-station detail view
-            MediumDetailWidgetView(station: pinned)
+        if let station = entry.primary {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(station.displayName)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(station.waterDisplayName)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(station.lastValue.map { "\(Int($0))" } ?? "–")
+                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .foregroundStyle(station.alarmLevel.color)
+                            .minimumScaleFactor(0.5)
+                        Text("cm")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        if let trend = station.trend, abs(trend) > 0.5 {
+                            Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
+                                .font(.caption.bold())
+                                .foregroundStyle(trend > 0 ? .red.opacity(0.8) : .green.opacity(0.8))
+                        }
+                    }
+
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(station.alarmLevel.color)
+                            .frame(width: 6, height: 6)
+                        Text(station.alarmLevel.label)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer(minLength: 16)
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let threshold = station.alarmThreshold {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("Schwelle")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text("\(Int(threshold)) cm")
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(station.alarmLevel.color)
+                        }
+                    }
+
+                    Spacer()
+
+                    if let updated = station.lastUpdated {
+                        HStack(spacing: 3) {
+                            Image(systemName: "clock")
+                            Text(updated, style: .relative)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(station.isStale ? Color.orange : Color.secondary)
+                    }
+
+                    Text(HeichwaasserAPI.isLuxembourgStation(station.id) ? "Héichwaasser.lu" : "PegelOnline")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.quaternary)
+                }
+            }
+            .padding(14)
         } else {
-            MediumEmptyView()
+            HStack(spacing: 12) {
+                Image(systemName: "water.waves.slash")
+                    .font(.title2)
+                    .foregroundStyle(.quaternary)
+                Text("Öffne PegelWatch\num Stationen hinzuzufügen.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
         }
     }
 }
 
 // ────────────────────────────────────────────────────────────────
 // MARK: - Large Widget
-// Up to 5 stations + threshold fill bar each
 // ────────────────────────────────────────────────────────────────
 
 struct LargeWidgetView: View {
@@ -431,12 +364,13 @@ struct LargeWidgetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HStack {
-                Image(systemName: "water.waves")
-                    .foregroundStyle(.blue)
-                Text("PegelWatch")
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 6) {
+                    Image(systemName: "water.waves")
+                        .foregroundStyle(.blue)
+                    Text("PegelWatch")
+                        .font(.subheadline.weight(.semibold))
+                }
                 Spacer()
                 if let updated = entry.stations.first?.lastUpdated {
                     Text(updated, style: .relative)
@@ -446,9 +380,7 @@ struct LargeWidgetView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
-            .padding(.bottom, 10)
-
-            Divider()
+            .padding(.bottom, 8)
 
             if entry.stations.isEmpty {
                 Spacer()
@@ -457,12 +389,11 @@ struct LargeWidgetView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(entry.stations.prefix(5).enumerated()), id: \.element.id) { idx, station in
-                        if idx > 0 { Divider().padding(.leading, 16) }
-                        LargeStationRow(station: station)
-                    }
+                ForEach(Array(entry.stations.prefix(5).enumerated()), id: \.element.id) { idx, station in
+                    if idx > 0 { Divider().padding(.leading, 16) }
+                    LargeStationRow(station: station)
                 }
+                Spacer(minLength: 0)
             }
         }
     }
@@ -471,67 +402,36 @@ struct LargeWidgetView: View {
 private struct LargeStationRow: View {
     let station: WatchedStation
 
-    private var fillFraction: Double {
-        guard let value = station.lastValue,
-              let threshold = station.alarmThreshold,
-              threshold > 0
-        else { return 0 }
-        return min(value / (threshold * 1.5), 1.0)
-    }
-
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(station.alarmLevel.color.opacity(0.15))
-                        .frame(width: 34, height: 34)
-                    Image(systemName: station.alarmLevel.systemImage)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(station.alarmLevel.color)
-                }
+        HStack(spacing: 12) {
+            Circle()
+                .fill(station.alarmLevel.color)
+                .frame(width: 8, height: 8)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(station.displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(station.waterDisplayName + (station.km.map { " · km \(Int($0))" } ?? ""))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 1) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(station.lastValue.map { "\(Int($0))" } ?? "–")
-                            .font(.system(.title3, design: .rounded).weight(.bold).monospacedDigit())
-                            .foregroundStyle(station.alarmLevel == .normal ? .primary : station.alarmLevel.color)
-                        Text("cm")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(station.alarmLevel.label)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(station.alarmLevel.color)
-                }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(station.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(station.waterDisplayName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
-            // Fill bar toward threshold
-            if station.alarmThreshold != nil {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(.quaternary)
-                            .frame(height: 4)
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(station.alarmLevel.color)
-                            .frame(width: geo.size.width * fillFraction, height: 4)
-                            .animation(.easeOut(duration: 0.6), value: fillFraction)
-                    }
+            Spacer()
+
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(station.lastValue.map { "\(Int($0))" } ?? "–")
+                    .font(.system(.title3, design: .rounded).weight(.bold).monospacedDigit())
+                    .foregroundStyle(station.alarmLevel == .normal ? .primary : station.alarmLevel.color)
+                if let trend = station.trend, abs(trend) > 0.5 {
+                    Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
+                        .font(.caption2.bold())
+                        .foregroundStyle(trend > 0 ? .red.opacity(0.8) : .green.opacity(0.8))
                 }
-                .frame(height: 4)
-                .padding(.leading, 44)
+                Text("cm")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 16)
@@ -539,19 +439,128 @@ private struct LargeStationRow: View {
     }
 }
 
-// MARK: - Shared Helper
+// ────────────────────────────────────────────────────────────────
+// MARK: - Accessory Circular (Lock Screen Gauge)
+// ────────────────────────────────────────────────────────────────
 
-private func alarmBadge(station: WatchedStation) -> some View {
-    HStack(spacing: 4) {
-        Image(systemName: station.alarmLevel.systemImage)
-            .font(.caption2.weight(.semibold))
-        Text(station.alarmLevel.label)
-            .font(.caption2.weight(.semibold))
+private struct AccessoryCircularView: View {
+    let entry: PegelWatchWidgetEntry
+
+    var body: some View {
+        if let station = entry.primary {
+            if let value = station.lastValue, let threshold = station.alarmThreshold, threshold > 0 {
+                Gauge(value: value, in: 0...threshold * 1.5) {
+                    Image(systemName: "water.waves")
+                } currentValueLabel: {
+                    Text("\(Int(value))")
+                        .font(.system(.body, design: .rounded).bold())
+                } minimumValueLabel: {
+                    Text("0")
+                        .font(.system(.caption2))
+                } maximumValueLabel: {
+                    Text("\(Int(threshold))")
+                        .font(.system(.caption2))
+                }
+                .gaugeStyle(.accessoryCircular)
+                .widgetAccentable()
+            } else {
+                VStack(spacing: 1) {
+                    Image(systemName: "water.waves")
+                        .font(.caption)
+                        .widgetAccentable()
+                    Text(station.lastValue.map { "\(Int($0))" } ?? "–")
+                        .font(.system(.title3, design: .rounded).bold())
+                    Text("cm")
+                        .font(.system(.caption2))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            Image(systemName: "water.waves.slash")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+        }
     }
-    .foregroundStyle(station.alarmLevel.color)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
-    .background(station.alarmLevel.color.opacity(0.12), in: Capsule())
+}
+
+// ────────────────────────────────────────────────────────────────
+// MARK: - Accessory Rectangular (Lock Screen Detail)
+// ────────────────────────────────────────────────────────────────
+
+private struct AccessoryRectangularView: View {
+    let entry: PegelWatchWidgetEntry
+
+    var body: some View {
+        if let station = entry.primary {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: "water.waves")
+                        .font(.caption2)
+                        .widgetAccentable()
+                    Text(station.displayName)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 4) {
+                    Text(station.lastValue.map { "\(Int($0)) cm" } ?? "– cm")
+                        .font(.system(.body, design: .rounded).bold())
+
+                    if let trend = station.trend, abs(trend) > 0.5 {
+                        Image(systemName: trend > 0 ? "arrow.up" : "arrow.down")
+                            .font(.caption2.bold())
+                    }
+
+                    Spacer()
+
+                    Text(station.waterDisplayName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                if let threshold = station.alarmThreshold, let value = station.lastValue {
+                    ProgressView(value: min(value, threshold * 1.5), total: threshold * 1.5)
+                        .tint(station.alarmLevel == .normal ? .green : station.alarmLevel.color)
+                }
+            }
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "water.waves.slash")
+                    .font(.caption)
+                Text("Keine Station")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────
+// MARK: - Accessory Inline (Lock Screen Compact)
+// ────────────────────────────────────────────────────────────────
+
+private struct AccessoryInlineView: View {
+    let entry: PegelWatchWidgetEntry
+
+    var body: some View {
+        if let station = entry.primary {
+            HStack(spacing: 4) {
+                Image(systemName: "water.waves")
+                if let value = station.lastValue {
+                    if let trend = station.trend, abs(trend) > 0.5 {
+                        Text("\(station.displayName) \(Int(value)) cm \(trend > 0 ? "↑" : "↓")")
+                    } else {
+                        Text("\(station.displayName) \(Int(value)) cm")
+                    }
+                } else {
+                    Text(station.displayName)
+                }
+            }
+        } else {
+            Text("PegelWatch")
+        }
+    }
 }
 
 // MARK: - Previews
@@ -575,6 +584,24 @@ private func alarmBadge(station: WatchedStation) -> some View {
 }
 
 #Preview("Large", as: .systemLarge) {
+    PegelWatchLargeWidget()
+} timeline: {
+    PegelWatchWidgetEntry.placeholder
+}
+
+#Preview("Accessory Circular", as: .accessoryCircular) {
+    PegelWatchWidget()
+} timeline: {
+    PegelWatchWidgetEntry.placeholder
+}
+
+#Preview("Accessory Rectangular", as: .accessoryRectangular) {
+    PegelWatchWidget()
+} timeline: {
+    PegelWatchWidgetEntry.placeholder
+}
+
+#Preview("Accessory Inline", as: .accessoryInline) {
     PegelWatchWidget()
 } timeline: {
     PegelWatchWidgetEntry.placeholder
