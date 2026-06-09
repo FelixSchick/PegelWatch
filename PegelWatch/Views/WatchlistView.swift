@@ -3,7 +3,10 @@ import SwiftUI
 struct WatchlistView: View {
 
     @State private var store = StationStore.shared
+    @State private var snapshotStore = SnapshotStore.shared
     @State private var sortBySeverity = false
+    @State private var showingSnapshotBuilder = false
+    @State private var showingSavedSnapshots = false
 
     private var displayedStations: [WatchedStation] {
         guard sortBySeverity else { return store.watchedStations }
@@ -37,6 +40,12 @@ struct WatchlistView: View {
                 if store.isRefreshing && store.watchedStations.isEmpty {
                     ProgressView("Lade Daten…")
                 }
+            }
+            .sheet(isPresented: $showingSnapshotBuilder) {
+                SectorSnapshotView(allStations: store.watchedStations)
+            }
+            .sheet(isPresented: $showingSavedSnapshots) {
+                SavedSnapshotsView()
             }
         }
     }
@@ -97,6 +106,29 @@ struct WatchlistView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            if !store.watchedStations.isEmpty {
+                Menu {
+                    Button {
+                        showingSnapshotBuilder = true
+                    } label: {
+                        Label("Neue Lageübersicht", systemImage: "plus.rectangle")
+                    }
+                    Button {
+                        showingSavedSnapshots = true
+                    } label: {
+                        let count = snapshotStore.snapshots.count
+                        Label(
+                            count == 0 ? "Gespeicherte" : "Gespeicherte (\(count))",
+                            systemImage: "archivebox"
+                        )
+                    }
+                } label: {
+                    Image(systemName: "list.bullet.clipboard")
+                }
+                .help("Lageübersichten")
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 withAnimation { sortBySeverity.toggle() }
