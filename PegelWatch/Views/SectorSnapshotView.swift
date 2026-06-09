@@ -496,6 +496,10 @@ private struct SnapshotChartView: View {
         return stride(from: 0, to: h.count, by: step).map { h[$0] }
     }
 
+    private var peak: SnapshotStationData.HistoryPoint? {
+        chartData.max { $0.value < $1.value }
+    }
+
     private var yDomain: ClosedRange<Double> {
         let values = chartData.map(\.value)
         guard !values.isEmpty else { return 0...100 }
@@ -503,8 +507,19 @@ private struct SnapshotChartView: View {
         var hi = values.max()!
         if let t = station.alarmThreshold { hi = max(hi, t) }
         let range = max(hi - lo, 1)
-        let pad = max(range * 0.15, 5)
-        return max(0, lo - pad)...(hi + pad)
+        // Extra top padding so peak annotation doesn't clip
+        let pad = max(range * 0.22, 8)
+        return max(0, lo - pad * 0.5)...(hi + pad)
+    }
+
+    private var de: Locale { Locale(identifier: "de_DE") }
+
+    private func peakTimestamp(_ date: Date) -> String {
+        switch timeframeDays {
+        case 1:  return date.formatted(.dateTime.hour().minute().locale(de))
+        case 7:  return date.formatted(.dateTime.weekday(.wide).hour().minute().locale(de))
+        default: return date.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(de))
+        }
     }
 
     var body: some View {
@@ -529,6 +544,7 @@ private struct SnapshotChartView: View {
                 .interpolationMethod(.catmullRom)
             }
 
+            // Alarm threshold
             if let threshold = station.alarmThreshold {
                 RuleMark(y: .value("Schwelle", threshold))
                     .foregroundStyle(Color(red: 0.85, green: 0.10, blue: 0.10).opacity(0.7))
@@ -542,17 +558,83 @@ private struct SnapshotChartView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 3))
                     }
             }
-        }
-        .chartYScale(domain: yDomain)
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                AxisGridLine()
-                AxisValueLabel(
-                    format: timeframeDays == 1 ? .dateTime.hour() : .dateTime.month(.abbreviated).day()
+
+            // Peak marker
+            if let peak {
+                // Vertical guide to peak
+                RuleMark(x: .value("Peak", peak.timestamp))
+                    .foregroundStyle(Color.orange.opacity(0.25))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                // Peak point + callout
+                PointMark(
+                    x: .value("Zeit", peak.timestamp),
+                    y: .value("Pegel", peak.value)
                 )
+                .symbolSize(40)
+                .foregroundStyle(Color.orange)
+                .annotation(position: .top, alignment: .center, spacing: 3) {
+                    VStack(spacing: 1) {
+                        Text("▲ \(Int(peak.value)) cm")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(Color(red: 0.85, green: 0.45, blue: 0.00))
+                        Text(peakTimestamp(peak.timestamp))
+                            .font(.system(size: 7))
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal, 5).padding(.vertical, 3)
+                    .background(Color.orange.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.orange.opacity(0.25), lineWidth: 0.5)
+                    )
+                }
             }
         }
-        .frame(height: 100)
+        .chartYScale(domain: yDomain)
+        .chartYAxis {
+            AxisMarks(values: .automatic(desiredCount: 3)) { value in
+                AxisGridLine().foregroundStyle(Color.gray.opacity(0.15))
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text("\(Int(v))")
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: xAxisTickCount)) { value in
+                AxisGridLine().foregroundStyle(Color.gray.opacity(0.15))
+                AxisTick().foregroundStyle(Color.gray.opacity(0.4))
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(xLabel(for: date))
+                            .font(.system(size: 8))
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+        }
+        .frame(height: 120)
+    }
+
+    private var xAxisTickCount: Int {
+        switch timeframeDays {
+        case 1:  return 6   // every ~4 h
+        case 7:  return 7   // one per day
+        default: return 5   // ~weekly marks
+        }
+    }
+
+    private func xLabel(for date: Date) -> String {
+        switch timeframeDays {
+        case 1:  return date.formatted(.dateTime.hour().minute().locale(de))
+        case 7:  return date.formatted(.dateTime.weekday(.abbreviated).locale(de))
+        default: return date.formatted(.dateTime.day().month(.abbreviated).locale(de))
+        }
     }
 }
 
