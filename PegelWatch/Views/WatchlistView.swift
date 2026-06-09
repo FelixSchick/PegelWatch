@@ -4,6 +4,7 @@ struct WatchlistView: View {
 
     @State private var store = StationStore.shared
     @State private var sortBySeverity = false
+    @State private var showingSnapshot = false
 
     private var displayedStations: [WatchedStation] {
         guard sortBySeverity else { return store.watchedStations }
@@ -37,6 +38,9 @@ struct WatchlistView: View {
                 if store.isRefreshing && store.watchedStations.isEmpty {
                     ProgressView("Lade Daten…")
                 }
+            }
+            .sheet(isPresented: $showingSnapshot) {
+                SectorSnapshotView(stations: store.watchedStations)
             }
         }
     }
@@ -97,6 +101,16 @@ struct WatchlistView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            if !store.watchedStations.isEmpty {
+                Button {
+                    showingSnapshot = true
+                } label: {
+                    Image(systemName: "list.bullet.clipboard")
+                }
+                .help("Lageübersicht erstellen")
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 withAnimation { sortBySeverity.toggle() }
