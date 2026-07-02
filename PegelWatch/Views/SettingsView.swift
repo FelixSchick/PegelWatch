@@ -81,36 +81,29 @@ struct SettingsView: View {
 
     private var alarmSoundSection: some View {
         Section {
-            ForEach(AlarmSound.allCases) { sound in
-                HStack(spacing: 12) {
-                    Button {
-                        previewPlayer.toggle(sound, volume: soundSettings.criticalVolume)
-                    } label: {
-                        Image(systemName: previewPlayer.playingSound == sound
-                              ? "stop.circle.fill" : "play.circle")
-                            .font(.title3)
-                            .foregroundStyle(.tint)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(previewPlayer.playingSound == sound
-                                        ? "Vorschau stoppen"
-                                        : "Ton \(sound.displayName) vorhören")
-
+            Picker(selection: $soundSettings.alarmSound) {
+                ForEach(AlarmSound.allCases) { sound in
                     Label(sound.displayName, systemImage: sound.systemImage)
-
-                    Spacer()
-
-                    if soundSettings.alarmSound == sound {
-                        Image(systemName: "checkmark")
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.tint)
-                    }
+                        .tag(sound)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    soundSettings.alarmSound = sound
-                }
+            } label: {
+                Label("Aktueller Ton", systemImage: "music.note")
             }
+            .pickerStyle(.navigationLink)
+
+            Button {
+                previewPlayer.toggle(soundSettings.alarmSound,
+                                     volume: soundSettings.criticalVolume)
+            } label: {
+                Label(
+                    previewPlayer.playingSound == soundSettings.alarmSound
+                        ? "Vorschau stoppen"
+                        : "Ton vorhören",
+                    systemImage: previewPlayer.playingSound == soundSettings.alarmSound
+                        ? "stop.circle.fill" : "play.circle.fill"
+                )
+            }
+            .disabled(soundSettings.alarmSound.isSilent)
         } header: {
             Label("Alarmton", systemImage: "speaker.wave.2")
         } footer: {

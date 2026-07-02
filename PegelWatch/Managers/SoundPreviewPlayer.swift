@@ -22,9 +22,11 @@ final class SoundPreviewPlayer: NSObject, AVAudioPlayerDelegate {
 
     func play(_ sound: AlarmSound, volume: Double) {
         stop()
+        // `.silent` spielt bewusst keinen Ton (nur Banner in echten Alarmen).
+        if sound.isSilent { return }
         guard let fileName = sound.fileName,
               let url = Bundle.main.url(forResource: fileName, withExtension: nil) else {
-            // Der iOS-Standardton liegt nicht im Bundle – kurzer System-Hinweiston.
+            // Standardton oder fehlende Datei – kurzer System-Hinweiston zur Vorschau.
             AudioServicesPlaySystemSound(1005)
             return
         }

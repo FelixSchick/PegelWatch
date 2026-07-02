@@ -148,9 +148,15 @@ class NotificationManager {
 
     /// Baut den UNNotificationSound aus Ton-Auswahl, Lautstärke und Kritikalität.
     /// Die Lautstärke greift nur bei kritischen Warnungen – normale Mitteilungen
-    /// folgen immer der Systemlautstärke.
-    private func alarmSound(_ sound: AlarmSound, critical: Bool) -> UNNotificationSound {
+    /// folgen immer der Systemlautstärke. Für `.silent` gibt es `nil` (nur Banner).
+    private func alarmSound(_ sound: AlarmSound, critical: Bool) -> UNNotificationSound? {
+        if sound.isSilent { return nil }
         let volume = Float(AlarmSoundSettings.shared.criticalVolume)
+        // `.standardCritical` ist immer der iOS-Standard-Kritisch-Ton –
+        // unabhängig davon, ob die Mitteilung selbst kritisch zugestellt wird.
+        if sound.usesSystemCritical {
+            return .defaultCriticalSound(withAudioVolume: volume)
+        }
         if critical {
             if let file = sound.fileName {
                 return .criticalSoundNamed(UNNotificationSoundName(file), withAudioVolume: volume)

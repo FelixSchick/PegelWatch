@@ -51,7 +51,7 @@ struct SectorSnapshotView: View {
                 }
                 .font(.caption)
                 .buttonStyle(.plain)
-                .foregroundStyle(.accentColor)
+                .foregroundStyle(Color.accentColor)
             }
         } footer: {
             Text("Wähle die Stationen, die in der Lageübersicht erscheinen sollen.")

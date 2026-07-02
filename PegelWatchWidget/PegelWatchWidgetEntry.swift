@@ -8,6 +8,7 @@
 import SwiftUI
 import WidgetKit
 import Charts
+import AppIntents
 
 struct PegelWatchWidgetEntry: TimelineEntry {
     let date: Date
@@ -153,19 +154,7 @@ struct PegelWatchWidget: Widget {
         ) { entry in
             SmallMediumWidgetView(entry: entry)
                 .containerBackground(for: .widget) {
-                    ContainerRelativeShape()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    (entry.primary?.alarmLevel ?? .normal).color.opacity(
-                                        entry.primary?.alarmLevel == .normal ? 0.04 : 0.10
-                                    ),
-                                    Color(.systemBackground)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
+                    WidgetBackgroundGradient(level: entry.primary?.alarmLevel ?? .normal)
                 }
         }
         .configurationDisplayName("PegelWatch")
@@ -187,6 +176,31 @@ struct PegelWatchLargeWidget: Widget {
         .configurationDisplayName("PegelWatch – Übersicht")
         .description("Alle beobachteten Pegelstationen auf einen Blick.")
         .supportedFamilies([.systemLarge])
+    }
+}
+
+// MARK: - Widget Background Gradient
+
+/// Sichtbarer Farbverlauf für Small/Medium-Widgets.
+/// Bei ruhigem Pegel ein dezenter Wasser-Blauton, bei erhöhten Stufen
+/// ein Verlauf in der Alarmfarbe – so ist der Zustand direkt erkennbar.
+private struct WidgetBackgroundGradient: View {
+    let level: AlarmLevel
+
+    var body: some View {
+        let base: Color = level == .normal ? .blue : level.color
+        let topOpacity: Double = level == .normal ? 0.22 : 0.35
+        let bottomOpacity: Double = level == .normal ? 0.06 : 0.12
+
+        LinearGradient(
+            colors: [
+                base.opacity(topOpacity),
+                base.opacity(bottomOpacity),
+                Color(.systemBackground)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
@@ -325,14 +339,14 @@ struct MediumWidgetView: View {
 
                 Spacer(minLength: 12)
 
-                VStack(alignment: .trailing, spacing: 6) {
+                VStack(alignment: .trailing, spacing: 4) {
                     if entry.primaryHistory.count >= 2 {
                         SparklineView(
                             history: entry.primaryHistory,
-                            color: station.alarmLevel.color,
+                            color: station.alarmLevel == .normal ? .blue : station.alarmLevel.color,
                             threshold: station.alarmThreshold
                         )
-                        .frame(width: 120, height: 44)
+                        .frame(width: 120, height: 28)
                     }
                     // Schwelle immer beziffern — die Sparkline zeichnet die
                     // Linie nur, wenn sie nah genug am Verlauf liegt.
@@ -390,34 +404,52 @@ private struct SparklineView: View {
     let color: Color
     let threshold: Double?
 
+    /// Zeitreihe geglättet durch gleitenden Mittelwert (Fenster 3),
+    /// damit Messrauschen im schmalen Widget-Chart nicht als Zickzack erscheint.
+    private var smoothed: [(timestamp: Date, value: Double)] {
+        guard history.count >= 3 else { return history }
+        var out: [(timestamp: Date, value: Double)] = []
+        out.reserveCapacity(history.count)
+        for i in history.indices {
+            let lo = max(0, i - 1)
+            let hi = min(history.count - 1, i + 1)
+            let window = history[lo...hi].map(\.value)
+            let avg = window.reduce(0, +) / Double(window.count)
+            out.append((history[i].timestamp, avg))
+        }
+        return out
+    }
+
     private var yDomain: ClosedRange<Double> {
-        let values = history.map(\.value)
+        let values = smoothed.map(\.value)
         guard let lo = values.min(), let hi = values.max() else { return 0...100 }
+        // Größeres minPadding im schmalen Sparkline-Kontext:
+        // vermeidet, dass 2–3 cm Schwankung auf voller Höhe aufgezogen werden.
         return PegelChartScale.domain(
             dataMin: lo, dataMax: hi,
             lines: threshold.map { [$0] } ?? [],
-            minPadding: 2
+            minPadding: 15
         )
     }
 
     var body: some View {
         Chart {
-            ForEach(history, id: \.timestamp) { point in
+            ForEach(smoothed, id: \.timestamp) { point in
                 AreaMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
                     .foregroundStyle(.linearGradient(
-                        colors: [color.opacity(0.25), color.opacity(0.02)],
+                        colors: [color.opacity(0.55), color.opacity(0.05)],
                         startPoint: .top, endPoint: .bottom
                     ))
                     .interpolationMethod(.catmullRom)
                 LineMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
                     .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+                    .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
                     .interpolationMethod(.catmullRom)
             }
             if let threshold, yDomain.contains(threshold) {
                 RuleMark(y: .value("Schwelle", threshold))
-                    .foregroundStyle(.red.opacity(0.6))
-                    .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [3, 2]))
+                    .foregroundStyle(.red.opacity(0.7))
+                    .lineStyle(StrokeStyle(lineWidth: 0.9, dash: [3, 2]))
             }
         }
         .chartXAxis(.hidden)

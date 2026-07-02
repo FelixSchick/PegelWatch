@@ -68,7 +68,7 @@ struct StationRowView: View {
                   : station.alarmLevel.systemImage)
                 .foregroundStyle(station.noDataAvailable ? .gray : station.alarmLevel.color)
                 .font(.system(size: 16, weight: .semibold))
-                .symbolEffect(.pulse, isActive: station.alarmLevel == .critical)
+                .symbolEffect(.pulse, isActive: station.alarmLevel.isAlarming)
         }
     }
 
