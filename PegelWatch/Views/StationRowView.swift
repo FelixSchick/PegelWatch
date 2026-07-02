@@ -55,7 +55,7 @@ struct StationRowView: View {
     private var info: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 5) {
-                Text(station.shortname.replacingStauAbbreviations)
+                Text(station.displayShortname)
                     .font(.headline)
                 if station.isAlarmMuted {
                     Image(systemName: "bell.slash.fill")

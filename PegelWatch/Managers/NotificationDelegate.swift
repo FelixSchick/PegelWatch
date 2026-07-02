@@ -24,16 +24,16 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         switch response.actionIdentifier {
         case NotificationManager.muteOneHourAction:
             await MainActor.run {
-                StationStore.shared.muteAlarms(for: stationID, duration: 60 * 60)
+                StationStore.shared.muteAlarms(for: stationID, duration: AlarmMuteDuration.oneHour.seconds)
             }
         case NotificationManager.muteOneDayAction:
             await MainActor.run {
-                StationStore.shared.muteAlarms(for: stationID, duration: 24 * 60 * 60)
+                StationStore.shared.muteAlarms(for: stationID, duration: AlarmMuteDuration.oneDay.seconds)
             }
         case UNNotificationDefaultActionIdentifier:
             // Tap auf die Mitteilung → Detailansicht der Station öffnen
             await MainActor.run {
-                AppRouter.shared.selectedTab = 0
+                AppRouter.shared.selectedTab = .watchlist
                 AppRouter.shared.pendingStationID = stationID
             }
         default:

@@ -43,15 +43,25 @@ final class SoundPreviewPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func stop() {
+        let wasPlaying = player != nil
         player?.stop()
         player = nil
         playingSound = nil
+        if wasPlaying { deactivateSession() }
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
             self.player = nil
             self.playingSound = nil
+            self.deactivateSession()
         }
+    }
+
+    /// Session wieder freigeben, sonst bleibt Audio anderer Apps
+    /// nach der Vorschau dauerhaft geduckt.
+    private func deactivateSession() {
+        try? AVAudioSession.sharedInstance()
+            .setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

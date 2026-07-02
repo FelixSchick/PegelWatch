@@ -18,25 +18,25 @@ struct ContentView: View {
                     Label("Watchlist", systemImage: "water.waves")
                 }
                 .badge(activeAlarmCount)
-                .tag(0)
+                .tag(AppTab.watchlist)
 
             StationMapView()
                 .tabItem {
                     Label("Karte", systemImage: "map")
                 }
-                .tag(1)
+                .tag(AppTab.map)
 
             StationSearchView()
                 .tabItem {
                     Label("Hinzufügen", systemImage: "plus.viewfinder")
                 }
-                .tag(2)
+                .tag(AppTab.search)
 
             SettingsView()
                 .tabItem {
                     Label("Einstellungen", systemImage: "gear")
                 }
-                .tag(3)
+                .tag(AppTab.settings)
         }
         .sheet(isPresented: .constant(!hasSeenTutorial)) {
             TutorialView(onFinish: { hasSeenTutorial = true })
@@ -48,7 +48,7 @@ struct ContentView: View {
         // Spotlight-Treffer öffnet direkt die Detailansicht der Station
         .onContinueUserActivity(CSSearchableItemActionType) { activity in
             guard let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
-            router.selectedTab = 0
+            router.selectedTab = .watchlist
             router.pendingStationID = id
         }
     }

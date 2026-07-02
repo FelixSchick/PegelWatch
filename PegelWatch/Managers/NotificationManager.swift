@@ -1,6 +1,28 @@
 import UserNotifications
 import Foundation
 
+/// Gemeinsame Quelle für Stummschalt-Dauern und ihre Labels —
+/// genutzt von Mitteilungs-Aktionen und dem Menü in der Detailansicht.
+enum AlarmMuteDuration: CaseIterable {
+    case oneHour, sixHours, oneDay
+
+    var seconds: TimeInterval {
+        switch self {
+        case .oneHour:  return 60 * 60
+        case .sixHours: return 6 * 60 * 60
+        case .oneDay:   return 24 * 60 * 60
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .oneHour:  return "1 Stunde"
+        case .sixHours: return "6 Stunden"
+        case .oneDay:   return "24 Stunden"
+        }
+    }
+}
+
 class NotificationManager {
 
     static let shared = NotificationManager()
@@ -13,8 +35,11 @@ class NotificationManager {
 
     func requestPermission() async {
         do {
+            // .criticalAlert ist ohne das Apple-Entitlement wirkungslos (wird
+            // schlicht nicht gewährt), aber sobald das Entitlement da ist,
+            // greifen Lautstärkeregler & Stummmodus-Durchbruch automatisch.
             let granted = try await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound, .badge])
+                .requestAuthorization(options: [.alert, .sound, .badge, .criticalAlert])
             print("Notification permission granted: \(granted)")
         } catch {
             print("Notification permission error: \(error)")
@@ -33,12 +58,12 @@ class NotificationManager {
     func registerCategories() {
         let muteHour = UNNotificationAction(
             identifier: Self.muteOneHourAction,
-            title: "1 Stunde stumm",
+            title: "\(AlarmMuteDuration.oneHour.label) stumm",
             options: []
         )
         let muteDay = UNNotificationAction(
             identifier: Self.muteOneDayAction,
-            title: "24 Stunden stumm",
+            title: "\(AlarmMuteDuration.oneDay.label) stumm",
             options: [.destructive]
         )
         let category = UNNotificationCategory(
@@ -54,7 +79,7 @@ class NotificationManager {
 
     func sendAlarmNotification(for station: WatchedStation, currentValue: Double) {
         let content = UNMutableNotificationContent()
-        content.title = "⚠️ Pegel-Alarm: \(station.shortname.replacingStauAbbreviations)"
+        content.title = "⚠️ Pegel-Alarm: \(station.displayShortname)"
         content.body = buildBody(station: station, value: currentValue)
         content.badge = 1
         content.categoryIdentifier = Self.alarmCategory

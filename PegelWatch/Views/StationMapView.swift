@@ -17,7 +17,7 @@ struct StationMapView: View {
             Map {
                 ForEach(mappableStations) { station in
                     Annotation(
-                        station.shortname.replacingStauAbbreviations,
+                        station.displayShortname,
                         coordinate: CLLocationCoordinate2D(
                             latitude: station.latitude ?? 0,
                             longitude: station.longitude ?? 0

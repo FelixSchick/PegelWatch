@@ -72,12 +72,7 @@ struct GetWaterLevelIntent: AppIntent {
         }
 
         // Frischen Wert laden, sonst letzten bekannten verwenden
-        let fresh: Double?
-        if HeichwaasserAPI.isLuxembourgStation(watched.id) {
-            fresh = await HeichwaasserAPI.shared.fetchLevels(for: [watched.id]).levels[watched.id]
-        } else {
-            fresh = await PegelOnlineAPI.shared.fetchLevels(for: [watched.id]).levels[watched.id]
-        }
+        let fresh = await LevelDataProvider.currentLevel(for: watched.id)
 
         guard let value = fresh ?? watched.lastValue else {
             return .result(

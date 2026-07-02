@@ -140,7 +140,9 @@ struct SettingsView: View {
                 NotificationManager.shared.sendTestAlarmNotification()
                 testNotificationSent = true
                 Task {
-                    try? await Task.sleep(for: .seconds(3))
+                    // Solange gesperrt lassen, bis die Testmitteilung (5 s)
+                    // zugestellt ist — erneutes Tippen würde sie ersetzen.
+                    try? await Task.sleep(for: .seconds(5))
                     testNotificationSent = false
                 }
             } label: {

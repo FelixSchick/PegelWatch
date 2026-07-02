@@ -56,9 +56,10 @@ actor PegelOnlineAPI {
         }
     }
 
-    /// Fetches the last 30 days of measurements — the maximum range shown in the chart.
-    func fetchAllLevels(for stationUUID: String) async throws -> [(timestamp: Date, value: Double)] {
-        let start = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-30 * 24 * 3600))
+    /// Fetches the last `days` days of measurements (default 30 — the maximum
+    /// range shown in the chart; the widget sparkline requests only 1 day).
+    func fetchAllLevels(for stationUUID: String, days: Int = 30) async throws -> [(timestamp: Date, value: Double)] {
+        let start = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(days) * 24 * 3600))
         let data = try await get(url: makeURL(
             path: "/stations/\(stationUUID)/W/measurements.json",
             queryItems: [URLQueryItem(name: "start", value: start)]

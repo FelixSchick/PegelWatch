@@ -46,7 +46,7 @@ struct StationDetailView: View {
             }
             .padding()
         }
-        .navigationTitle(station.shortname.replacingStauAbbreviations)
+        .navigationTitle(station.displayShortname)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -326,9 +326,11 @@ struct StationDetailView: View {
                 Label("Vorübergehend stumm", systemImage: "bell.slash")
                 Spacer()
                 Menu {
-                    Button("1 Stunde") { store.muteAlarms(for: station.id, duration: 60 * 60) }
-                    Button("6 Stunden") { store.muteAlarms(for: station.id, duration: 6 * 60 * 60) }
-                    Button("24 Stunden") { store.muteAlarms(for: station.id, duration: 24 * 60 * 60) }
+                    ForEach(AlarmMuteDuration.allCases, id: \.self) { duration in
+                        Button(duration.label) {
+                            store.muteAlarms(for: station.id, duration: duration.seconds)
+                        }
+                    }
                 } label: {
                     HStack(spacing: 4) {
                         Text("Dauer")
@@ -625,16 +627,6 @@ struct StationDetailView: View {
             return lines
         }
 
-        /// Schwellen, die im aktuellen Y-Bereich liegen und als Linie gezeichnet werden.
-        private var visibleAlarmLines: [AlarmLine] {
-            alarmLines.filter { chartYDomain.contains($0.value) }
-        }
-
-        /// Schwellen oberhalb des sichtbaren Bereichs (werden als Hinweis angezeigt).
-        private var offScaleAlarmLines: [AlarmLine] {
-            alarmLines.filter { $0.value > chartYDomain.upperBound }
-        }
-
         private var stats: (min: Double, max: Double, avg: Double)? {
             guard !visibleHistory.isEmpty else { return nil }
             let values = visibleHistory.map(\.value)
@@ -645,31 +637,16 @@ struct StationDetailView: View {
             )
         }
 
-        /// Kompromiss zwischen Verlauf und Schwellen: Der Y-Bereich folgt primär
-        /// den Messwerten. Schwellen werden nur eingeschlossen, solange sie den
-        /// Verlauf nicht auf eine flache Linie zusammenstauchen (max. das
-        /// 1,5-fache der Datenspanne oberhalb des Maximums). Weiter entfernte
-        /// Schwellen erscheinen als Hinweis-Chip und lassen sich per Button
-        /// vollständig einblenden.
+        /// Kompromiss zwischen Verlauf und Schwellen (geteilte Logik in
+        /// PegelChartScale): Weiter entfernte Schwellen erscheinen als
+        /// Hinweis-Button und lassen sich vollständig einblenden.
         private var chartYDomain: ClosedRange<Double> {
             guard let s = stats else { return 0...100 }
-            let lo = s.min
-            var hi = s.max
-            let dataRange = max(hi - lo, 1)
-            let lineValues = alarmLines.map(\.value)
-
-            if showAllThresholds {
-                if let maxLine = lineValues.max() { hi = max(hi, maxLine) }
-            } else {
-                let cap = hi + max(dataRange * 1.5, 20)
-                if let maxNearLine = lineValues.filter({ $0 <= cap }).max() {
-                    hi = max(hi, maxNearLine)
-                }
-            }
-
-            let range = max(hi - lo, 1)
-            let padding = max(range * 0.15, 5)
-            return max(0, lo - padding)...(hi + padding)
+            return PegelChartScale.domain(
+                dataMin: s.min, dataMax: s.max,
+                lines: alarmLines.map(\.value),
+                includeAllLines: showAllThresholds
+            )
         }
 
         private func nearest(to date: Date) -> (timestamp: Date, value: Double)? {
@@ -690,6 +667,13 @@ struct StationDetailView: View {
         }
 
         var body: some View {
+            // Einmal pro Body-Auswertung berechnen — Domain/Stats sind O(n)
+            // über die Historie und werden sonst beim Chart-Scrubbing
+            // mehrfach pro Frame neu gerechnet.
+            let domain = chartYDomain
+            let visibleLines = alarmLines.filter { domain.contains($0.value) }
+            let offScaleLines = alarmLines.filter { !domain.contains($0.value) }
+
             VStack(alignment: .leading, spacing: 12) {
                 if let date = selectedDate, let point = nearest(to: date) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -724,19 +708,19 @@ struct StationDetailView: View {
                 .pickerStyle(.segmented)
                 .onChange(of: visibleDays) { selectedDate = nil }
 
-                if !offScaleAlarmLines.isEmpty || showAllThresholds {
+                if !offScaleLines.isEmpty || showAllThresholds {
                     Button {
                         withAnimation(.snappy) { showAllThresholds.toggle() }
                     } label: {
                         if showAllThresholds {
                             Label("Auf Verlauf zoomen", systemImage: "arrow.down.right.and.arrow.up.left")
                         } else {
-                            let n = offScaleAlarmLines.count
+                            let n = offScaleLines.count
                             Label(
                                 n == 1
-                                    ? "1 Schwelle oberhalb (\(Int(offScaleAlarmLines[0].value)) cm) – einblenden"
-                                    : "\(n) Schwellen oberhalb – einblenden",
-                                systemImage: "arrow.up.to.line"
+                                    ? "1 Schwelle außerhalb (\(Int(offScaleLines[0].value)) cm) – einblenden"
+                                    : "\(n) Schwellen außerhalb – einblenden",
+                                systemImage: "arrow.up.and.down.text.horizontal"
                             )
                         }
                     }
@@ -762,7 +746,7 @@ struct StationDetailView: View {
                             .foregroundStyle(by: .value("Reihe", "Wasserstand"))
                     }
 
-                    ForEach(visibleAlarmLines) { line in
+                    ForEach(visibleLines) { line in
                         RuleMark(y: .value(line.label, line.value))
                             .foregroundStyle(line.color.opacity(0.85))
                             .lineStyle(StrokeStyle(lineWidth: line.emphasized ? 1 : 0.75, dash: [5, 3]))
@@ -781,7 +765,7 @@ struct StationDetailView: View {
                 }
                 .chartForegroundStyleScale(["Wasserstand": alarmColor])
                 .chartLegend(position: .top, alignment: .leading, spacing: 8)
-                .chartYScale(domain: chartYDomain)
+                .chartYScale(domain: domain)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                         AxisGridLine()

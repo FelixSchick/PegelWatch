@@ -29,7 +29,7 @@ class StationStore {
     func add(_ station: WatchedStation) {
         guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
         watchedStations.append(station)
-        SpotlightIndexer.reindex(watchedStations)
+        SpotlightIndexer.index(station)
         Task {
             await StationStore.shared.refreshAll()
         }
@@ -40,7 +40,7 @@ class StationStore {
             Task { await LiveActivityManager.shared.end(for: station) }
         }
         watchedStations.removeAll { $0.id == id }
-        SpotlightIndexer.reindex(watchedStations)
+        SpotlightIndexer.remove(id: id)
     }
 
     func isWatching(_ stationID: String) -> Bool {
@@ -175,14 +175,17 @@ class StationStore {
 
             let station = updated[idx]
 
+            // Solange stummgeschaltet, wird die Alarm-Auswertung komplett pausiert:
+            // Der Trigger-Latch darf nicht gesetzt werden, sonst bliebe eine
+            // Überschreitung nach Ablauf der Stummschaltung dauerhaft unbemerkt.
+            guard !station.isAlarmMuted else { continue }
+
             // Main threshold alarm
             if station.alarmEnabled, let threshold = station.alarmThreshold {
                 let isAbove = value >= threshold
 
                 if isAbove && !station.alarmTriggered {
-                    if !station.isAlarmMuted {
-                        NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
-                    }
+                    NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
                     updated[idx].alarmTriggered  = true
                     updated[idx].lastNotifiedAt  = Date()
                     updated[idx].alarmHistory.append(AlarmEvent(
@@ -205,11 +208,9 @@ class StationStore {
                 let wasAbove = station.customAlarmTriggered[key] ?? false
 
                 if isAbove && !wasAbove {
-                    if !station.isAlarmMuted {
-                        NotificationManager.shared.sendCustomAlarmNotification(
-                            for: station, alarm: alarm, currentValue: value
-                        )
-                    }
+                    NotificationManager.shared.sendCustomAlarmNotification(
+                        for: station, alarm: alarm, currentValue: value
+                    )
                     updated[idx].customAlarmTriggered[key]      = true
                     updated[idx].customAlarmLastNotifiedAt[key] = Date()
                     updated[idx].alarmHistory.append(AlarmEvent(

@@ -49,6 +49,11 @@ struct WatchedStation: Identifiable, Codable, Hashable {
         (longname.isEmpty ? shortname : longname.capitalized).replacingStauAbbreviations
     }
 
+    /// Kurzname für die Anzeige (mit Oberstau/Unterstau statt OP/UP).
+    var displayShortname: String {
+        shortname.replacingStauAbbreviations
+    }
+
     var isAlarmMuted: Bool {
         guard let until = alarmMutedUntil else { return false }
         return until > Date()

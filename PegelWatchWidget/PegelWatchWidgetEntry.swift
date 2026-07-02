@@ -101,14 +101,7 @@ struct PegelWatchWidgetProvider: AppIntentTimelineProvider {
     /// Letzte 24 h Verlauf für die Sparkline; Fehler ergeben eine leere Liste.
     private func fetchDayHistory(for station: WatchedStation?) async -> [(timestamp: Date, value: Double)] {
         guard let station else { return [] }
-        let full: [(timestamp: Date, value: Double)]
-        if HeichwaasserAPI.isLuxembourgStation(station.id) {
-            full = (try? await HeichwaasserAPI.shared.fetchHistory(for: station.id)) ?? []
-        } else {
-            full = (try? await PegelOnlineAPI.shared.fetchAllLevels(for: station.id)) ?? []
-        }
-        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
-        return full.filter { $0.timestamp >= cutoff }
+        return (try? await LevelDataProvider.history(for: station.id, days: 1)) ?? []
     }
 }
 
@@ -340,15 +333,13 @@ struct MediumWidgetView: View {
                             threshold: station.alarmThreshold
                         )
                         .frame(width: 120, height: 44)
-                    } else if let threshold = station.alarmThreshold {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("Schwelle")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                            Text("\(Int(threshold)) cm")
-                                .font(.caption.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(station.alarmLevel.color)
-                        }
+                    }
+                    // Schwelle immer beziffern — die Sparkline zeichnet die
+                    // Linie nur, wenn sie nah genug am Verlauf liegt.
+                    if let threshold = station.alarmThreshold {
+                        Text("Schwelle \(Int(threshold)) cm")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(station.alarmLevel.color)
                     }
 
                     Spacer(minLength: 0)
@@ -399,17 +390,14 @@ private struct SparklineView: View {
     let color: Color
     let threshold: Double?
 
-    // Gleicher Kompromiss wie im Detail-Chart: Schwelle nur einbeziehen,
-    // wenn sie den Verlauf nicht plattdrückt.
     private var yDomain: ClosedRange<Double> {
         let values = history.map(\.value)
-        guard let lo = values.min(), var hi = values.max() else { return 0...100 }
-        let dataRange = max(hi - lo, 1)
-        if let threshold, threshold <= hi + max(dataRange * 1.5, 20) {
-            hi = max(hi, threshold)
-        }
-        let padding = max((hi - lo) * 0.15, 2)
-        return (lo - padding)...(hi + padding)
+        guard let lo = values.min(), let hi = values.max() else { return 0...100 }
+        return PegelChartScale.domain(
+            dataMin: lo, dataMax: hi,
+            lines: threshold.map { [$0] } ?? [],
+            minPadding: 2
+        )
     }
 
     var body: some View {

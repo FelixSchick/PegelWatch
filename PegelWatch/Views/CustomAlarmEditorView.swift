@@ -23,6 +23,12 @@ struct CustomAlarmEditorView: View {
     @State private var selectedSoundID: String?
     @State private var previewPlayer = SoundPreviewPlayer.shared
 
+    /// Der Ton, den die Vorschau abspielen würde (Alarm-eigener oder globaler).
+    private var resolvedPreviewSound: AlarmSound {
+        AlarmSound(idOrDefault: selectedSoundID
+            ?? AlarmSoundSettings.shared.alarmSound.rawValue)
+    }
+
     init(stationID: String, existing: CustomAlarm? = nil, onSave: @escaping (CustomAlarm) -> Void) {
         self.stationID = stationID
         self.existing  = existing
@@ -94,11 +100,10 @@ struct CustomAlarmEditorView: View {
                             }
 
                             Button {
-                                let sound = AlarmSound(idOrDefault: selectedSoundID
-                                    ?? AlarmSoundSettings.shared.alarmSound.rawValue)
-                                previewPlayer.toggle(sound, volume: AlarmSoundSettings.shared.criticalVolume)
+                                previewPlayer.toggle(resolvedPreviewSound,
+                                                     volume: AlarmSoundSettings.shared.criticalVolume)
                             } label: {
-                                Image(systemName: previewPlayer.playingSound != nil
+                                Image(systemName: previewPlayer.playingSound == resolvedPreviewSound
                                       ? "stop.circle.fill" : "play.circle")
                                     .font(.title3)
                             }
