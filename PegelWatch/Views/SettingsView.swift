@@ -6,6 +6,9 @@ struct SettingsView: View {
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showResetConfirm: Bool = false
     @State private var store = StationStore.shared
+    @State private var soundSettings = AlarmSoundSettings.shared
+    @State private var previewPlayer = SoundPreviewPlayer.shared
+    @State private var testNotificationSent = false
     
     @State private var tapCount = 0
     @State private var lastTapTime = Date()
@@ -18,12 +21,17 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 notificationSection
+                alarmSoundSection
+                alarmVolumeSection
                 aboutSection
                 dangerSection
             }
             .navigationTitle("Einstellungen")
             .task {
                 await checkNotificationStatus()
+            }
+            .onDisappear {
+                previewPlayer.stop()
             }
             .confirmationDialog(
                 "Alle Stationen entfernen?",
@@ -68,6 +76,82 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var alarmSoundSection: some View {
+        Section {
+            ForEach(AlarmSound.allCases) { sound in
+                HStack(spacing: 12) {
+                    Button {
+                        previewPlayer.toggle(sound, volume: soundSettings.criticalVolume)
+                    } label: {
+                        Image(systemName: previewPlayer.playingSound == sound
+                              ? "stop.circle.fill" : "play.circle")
+                            .font(.title3)
+                            .foregroundStyle(.tint)
+                    }
+                    .buttonStyle(.plain)
+
+                    Label(sound.displayName, systemImage: sound.systemImage)
+
+                    Spacer()
+
+                    if soundSettings.alarmSound == sound {
+                        Image(systemName: "checkmark")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    soundSettings.alarmSound = sound
+                }
+            }
+        } header: {
+            Label("Alarmton", systemImage: "speaker.wave.2")
+        } footer: {
+            Text("Der Ton wird für Pegel-Alarme verwendet. Eigene Alarme können in ihrer Bearbeitung einen abweichenden Ton erhalten.")
+        }
+    }
+
+    private var alarmVolumeSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Lautstärke: \(Int(soundSettings.criticalVolume * 100)) %")
+                    .font(.subheadline)
+                HStack(spacing: 12) {
+                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                    Slider(value: $soundSettings.criticalVolume, in: 0.1...1.0, step: 0.05) { editing in
+                        if !editing {
+                            previewPlayer.play(soundSettings.alarmSound,
+                                               volume: soundSettings.criticalVolume)
+                        }
+                    }
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                }
+            }
+
+            Toggle(isOn: $soundSettings.useCriticalAlerts) {
+                Label("Kritische Warnung", systemImage: "exclamationmark.triangle")
+            }
+
+            Button {
+                NotificationManager.shared.sendTestAlarmNotification()
+                testNotificationSent = true
+                Task {
+                    try? await Task.sleep(for: .seconds(3))
+                    testNotificationSent = false
+                }
+            } label: {
+                Label(testNotificationSent ? "Wird in 5 s zugestellt …" : "Testbenachrichtigung senden",
+                      systemImage: "bell.and.waves.left.and.right")
+            }
+            .disabled(testNotificationSent || notificationStatus != .authorized)
+        } header: {
+            Label("Lautstärke & Dringlichkeit", systemImage: "speaker.wave.3")
+        } footer: {
+            Text("Kritische Warnungen durchbrechen Stummmodus und Fokus und nutzen die eingestellte Lautstärke. Ohne kritische Warnung folgen Alarme der Systemlautstärke und werden als zeitkritisch zugestellt.")
         }
     }
 

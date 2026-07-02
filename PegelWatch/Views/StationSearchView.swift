@@ -228,7 +228,7 @@ struct SearchResultRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(station.shortname)
+                Text(station.shortname.replacingStauAbbreviations)
                     .font(.headline)
                 HStack(spacing: 4) {
                     Text(station.water.longname.isEmpty ? station.water.shortname : station.water.longname)

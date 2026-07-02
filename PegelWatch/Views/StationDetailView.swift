@@ -46,7 +46,7 @@ struct StationDetailView: View {
             }
             .padding()
         }
-        .navigationTitle(station.shortname)
+        .navigationTitle(station.shortname.replacingStauAbbreviations)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -242,6 +242,10 @@ struct StationDetailView: View {
 
                 Divider().padding(.leading)
 
+                muteRow
+
+                Divider().padding(.leading)
+
                 Button {
                     thresholdInput = liveStation.alarmThreshold.map { String(Int($0)) } ?? ""
                     showThresholdEditor = true
@@ -299,6 +303,43 @@ struct StationDetailView: View {
         } footer: {
             Text("Stelle dir eine Alarmgrenze, ab der du benachrichtigt wirst.")
         }
+    }
+
+    /// Zeile zum vorübergehenden Stummschalten aller Mitteilungen der Station.
+    /// Die gleiche Stummschaltung ist auch als Schnellaktion in der
+    /// Alarm-Benachrichtigung verfügbar.
+    private var muteRow: some View {
+        HStack {
+            if liveStation.isAlarmMuted, let until = liveStation.alarmMutedUntil {
+                Label {
+                    Text("Stumm bis \(until.formatted(date: .omitted, time: .shortened))")
+                } icon: {
+                    Image(systemName: "bell.slash.fill").foregroundStyle(.orange)
+                }
+                Spacer()
+                Button("Aufheben") {
+                    store.unmuteAlarms(for: station.id)
+                }
+                .font(.subheadline)
+            } else {
+                Label("Vorübergehend stumm", systemImage: "bell.slash")
+                Spacer()
+                Menu {
+                    Button("1 Stunde") { store.muteAlarms(for: station.id, duration: 60 * 60) }
+                    Button("6 Stunden") { store.muteAlarms(for: station.id, duration: 6 * 60 * 60) }
+                    Button("24 Stunden") { store.muteAlarms(for: station.id, duration: 24 * 60 * 60) }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Dauer")
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .disabled(!liveStation.alarmEnabled)
     }
 
     private func thresholdLevelRow(for level: AlarmLevel) -> some View {

@@ -20,6 +20,8 @@ struct CustomAlarmEditorView: View {
     @State private var thresholdText: String = "200"
     @State private var selectedHex: String = CustomAlarm.palette[0].hex
     @State private var notificationsEnabled: Bool = true
+    @State private var selectedSoundID: String?
+    @State private var previewPlayer = SoundPreviewPlayer.shared
 
     init(stationID: String, existing: CustomAlarm? = nil, onSave: @escaping (CustomAlarm) -> Void) {
         self.stationID = stationID
@@ -31,6 +33,7 @@ struct CustomAlarmEditorView: View {
             _thresholdText        = State(initialValue: "\(Int(a.threshold))")
             _selectedHex          = State(initialValue: a.colorHex)
             _notificationsEnabled = State(initialValue: a.notificationsEnabled)
+            _selectedSoundID      = State(initialValue: a.soundID)
         }
     }
 
@@ -80,6 +83,28 @@ struct CustomAlarmEditorView: View {
 
                 Section {
                     Toggle("Benachrichtigungen", isOn: $notificationsEnabled)
+
+                    if notificationsEnabled {
+                        HStack {
+                            Picker("Alarmton", selection: $selectedSoundID) {
+                                Text("Wie global eingestellt").tag(String?.none)
+                                ForEach(AlarmSound.allCases) { sound in
+                                    Text(sound.displayName).tag(String?.some(sound.rawValue))
+                                }
+                            }
+
+                            Button {
+                                let sound = AlarmSound(idOrDefault: selectedSoundID
+                                    ?? AlarmSoundSettings.shared.alarmSound.rawValue)
+                                previewPlayer.toggle(sound, volume: AlarmSoundSettings.shared.criticalVolume)
+                            } label: {
+                                Image(systemName: previewPlayer.playingSound != nil
+                                      ? "stop.circle.fill" : "play.circle")
+                                    .font(.title3)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                 }
 
                 // Live preview
@@ -99,6 +124,7 @@ struct CustomAlarmEditorView: View {
             }
             .navigationTitle(existing == nil ? "Alarm hinzufügen" : "Alarm bearbeiten")
             .navigationBarTitleDisplayMode(.inline)
+            .onDisappear { previewPlayer.stop() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Abbrechen") { dismiss() }
@@ -112,6 +138,7 @@ struct CustomAlarmEditorView: View {
                         alarm.threshold            = threshold
                         alarm.colorHex             = selectedHex
                         alarm.notificationsEnabled = notificationsEnabled
+                        alarm.soundID              = selectedSoundID
                         onSave(alarm)
                         dismiss()
                     }

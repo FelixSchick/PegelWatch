@@ -54,8 +54,15 @@ struct StationRowView: View {
 
     private var info: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(station.shortname)
-                .font(.headline)
+            HStack(spacing: 5) {
+                Text(station.shortname.replacingStauAbbreviations)
+                    .font(.headline)
+                if station.isAlarmMuted {
+                    Image(systemName: "bell.slash.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
             HStack(spacing: 4) {
                 Text(station.waterDisplayName)
                 if let km = station.km {

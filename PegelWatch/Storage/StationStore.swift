@@ -63,6 +63,17 @@ class StationStore {
         watchedStations[idx].alarmEnabled = enabled
     }
 
+    /// Unterdrückt Alarm-Mitteilungen der Station für die angegebene Dauer.
+    func muteAlarms(for stationID: String, duration: TimeInterval) {
+        guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
+        watchedStations[idx].alarmMutedUntil = Date().addingTimeInterval(duration)
+    }
+
+    func unmuteAlarms(for stationID: String) {
+        guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
+        watchedStations[idx].alarmMutedUntil = nil
+    }
+
     func setCustomThreshold(id: String, enabled: Bool) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { return }
         watchedStations[idx].enableCustomThreshold = enabled
@@ -166,7 +177,9 @@ class StationStore {
                 let isAbove = value >= threshold
 
                 if isAbove && !station.alarmTriggered {
-                    NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
+                    if !station.isAlarmMuted {
+                        NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
+                    }
                     updated[idx].alarmTriggered  = true
                     updated[idx].lastNotifiedAt  = Date()
                     updated[idx].alarmHistory.append(AlarmEvent(
@@ -189,9 +202,11 @@ class StationStore {
                 let wasAbove = station.customAlarmTriggered[key] ?? false
 
                 if isAbove && !wasAbove {
-                    NotificationManager.shared.sendCustomAlarmNotification(
-                        for: station, alarm: alarm, currentValue: value
-                    )
+                    if !station.isAlarmMuted {
+                        NotificationManager.shared.sendCustomAlarmNotification(
+                            for: station, alarm: alarm, currentValue: value
+                        )
+                    }
                     updated[idx].customAlarmTriggered[key]      = true
                     updated[idx].customAlarmLastNotifiedAt[key] = Date()
                     updated[idx].alarmHistory.append(AlarmEvent(

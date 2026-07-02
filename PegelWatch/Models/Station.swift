@@ -3,6 +3,21 @@ import Foundation
 // Matches the PegelOnline REST API response
 // GET https://pegelonline.wsv.de/webservices/rest-api/v2/stations.json
 
+extension String {
+    /// Ersetzt die PEGELONLINE-Kürzel "OP" (Oberpegel) und "UP" (Unterpegel)
+    /// in Stationsnamen durch "Oberstau" / "Unterstau" für die Anzeige,
+    /// z.B. "IFFEZHEIM OP" → "IFFEZHEIM Oberstau".
+    var replacingStauAbbreviations: String {
+        split(separator: " ").map { token in
+            switch token.uppercased() {
+            case "OP": return "Oberstau"
+            case "UP": return "Unterstau"
+            default:   return String(token)
+            }
+        }.joined(separator: " ")
+    }
+}
+
 struct Station: Identifiable, Codable, Hashable {
     let uuid: String
     let number: String
@@ -17,7 +32,7 @@ struct Station: Identifiable, Codable, Hashable {
     var id: String { uuid }
 
     var displayName: String {
-        longname.isEmpty ? shortname : longname.capitalized
+        (longname.isEmpty ? shortname : longname.capitalized).replacingStauAbbreviations
     }
 }
 
