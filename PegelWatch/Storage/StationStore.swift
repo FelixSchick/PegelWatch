@@ -21,6 +21,7 @@ class StationStore {
     init() {
         load()
         observeICloudChanges()
+        SpotlightIndexer.reindex(watchedStations)
     }
 
     // MARK: - Watchlist
@@ -28,6 +29,7 @@ class StationStore {
     func add(_ station: WatchedStation) {
         guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
         watchedStations.append(station)
+        SpotlightIndexer.reindex(watchedStations)
         Task {
             await StationStore.shared.refreshAll()
         }
@@ -38,6 +40,7 @@ class StationStore {
             Task { await LiveActivityManager.shared.end(for: station) }
         }
         watchedStations.removeAll { $0.id == id }
+        SpotlightIndexer.reindex(watchedStations)
     }
 
     func isWatching(_ stationID: String) -> Bool {

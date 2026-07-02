@@ -13,6 +13,19 @@ Stand: Juli 2026 · Zielplattform: iOS 26+
   Eckenradius, Glass-Buttons (Station entfernen, Schwellen-Toggle).
   Alarmzustand färbt das Glas der Pegel-Karte.
 - Eigene Alarmtöne, Lautstärkeregler, Stummschalt-Aktionen (voriger Commit).
+- **Widgets**: 24h-Sparkline im Medium-Widget, interaktiver
+  Aktualisieren-Button (AppIntent) in Medium- und Large-Widget,
+  Control-Center-Baustein zum App-Öffnen. Lock-Screen-Familien
+  (circular/rectangular/inline) waren bereits vorhanden.
+- **Siri & Spotlight**: `GetWaterLevelIntent` mit Stations-Parameter als
+  App Shortcut („Wie hoch ist der Pegel …?"), Spotlight-Indexierung der
+  Watchlist mit Deep-Link in die Detailansicht; Tap auf eine
+  Alarm-Mitteilung öffnet ebenfalls direkt die Station.
+- **Karten-Tab**: Alle beobachteten Stationen auf einer MapKit-Karte,
+  Marker in Alarmfarbe mit aktuellem Pegelwert, Tap öffnet die
+  Detailansicht.
+- **Haptik**: `sensoryFeedback` bei Alarmstufenwechsel in der
+  Detailansicht und bei neuen Alarmen in der Tab-Übersicht.
 
 ## 2. Design-Vereinheitlichung – nächste Schritte
 
@@ -67,10 +80,9 @@ Stand: Juli 2026 · Zielplattform: iOS 26+
 - Onboarding: Benachrichtigungs-Berechtigung erst nach Erklärung anfragen
   (Pre-Permission-Screen) statt sofort beim Start.
 
-## 4. Empfohlene Reihenfolge
+## 4. Empfohlene Reihenfolge (verbleibend)
 
-1. Lock-Screen-Widgets + interaktive Widgets (schneller Gewinn, Basis da)
-2. App Shortcuts + Spotlight (Reichweite außerhalb der App)
-3. Tutorial-Redesign + Accessibility-Audit (Konsistenz abschließen)
-4. Karten-Tab (größtes neues Feature)
-5. TipKit, Haptik, Chart-Scrolling (Feinschliff)
+1. Tutorial-Redesign + Accessibility-Audit (Konsistenz abschließen)
+2. TipKit, Chart-Scrolling, MNW/MHW-Referenzwerte (Feinschliff)
+3. Live-Activity-Ausbau (Dynamic Island, Watch Smart Stack)
+4. Interactive Snippets & watchOS-App (größere Ausbaustufen)

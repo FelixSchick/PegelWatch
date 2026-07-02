@@ -30,6 +30,12 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             await MainActor.run {
                 StationStore.shared.muteAlarms(for: stationID, duration: 24 * 60 * 60)
             }
+        case UNNotificationDefaultActionIdentifier:
+            // Tap auf die Mitteilung → Detailansicht der Station öffnen
+            await MainActor.run {
+                AppRouter.shared.selectedTab = 0
+                AppRouter.shared.pendingStationID = stationID
+            }
         default:
             break
         }

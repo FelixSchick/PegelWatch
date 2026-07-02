@@ -62,6 +62,10 @@ struct StationDetailView: View {
             }
         }
         .task { await loadHistory() }
+        // Spürbares Feedback, wenn sich die Alarmstufe der Station ändert
+        .sensoryFeedback(trigger: liveStation.alarmLevel) { _, newLevel in
+            newLevel.isAlarming ? .warning : .success
+        }
         .sheet(isPresented: $showThresholdEditor) { thresholdSheet }
         .sheet(isPresented: $showCustomThresholdEditor) { customThresholdSheet }
         .sheet(isPresented: $showHistory) { AlarmHistoryView(station: liveStation) }
