@@ -86,11 +86,7 @@ struct StationDetailView: View {
             Spacer()
         }
         .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(.gray.opacity(0.25), lineWidth: 1)
-        )
+        .pegelCard(tint: .gray.opacity(0.15))
     }
 
     // MARK: - Level Gauge
@@ -159,10 +155,11 @@ struct StationDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .pegelCard(tint: liveStation.alarmLevel.isAlarming
+                   ? liveStation.alarmLevel.color.opacity(0.18) : nil)
         .overlay {
             if liveStation.alarmLevel.isAlarming {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: PegelDesign.cardCornerRadius)
                     .stroke(liveStation.alarmLevel.color.opacity(glowPulse ? 0.4 : 0.08), lineWidth: 1)
                     .shadow(color: liveStation.alarmLevel.color.opacity(glowPulse ? 0.3 : 0), radius: 8)
             }
@@ -197,7 +194,7 @@ struct StationDetailView: View {
                 value: HeichwaasserAPI.isLuxembourgStation(liveStation.id) ? "Héichwaasser.lu" : "PegelOnline (WSV)"
             )
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .pegelCard()
     }
 
     private func infoRow(label: String, icon: String, value: String) -> some View {
@@ -296,7 +293,7 @@ struct StationDetailView: View {
                     .disabled(!liveStation.alarmEnabled)
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .pegelCard()
             .animation(.easeInOut(duration: 0.3), value: liveStation.enableCustomThreshold)
         } header: {
             Label("Alarm", systemImage: "bell")
@@ -377,10 +374,10 @@ struct StationDetailView: View {
         } label: {
             Label("Station entfernen", systemImage: "trash")
                 .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                .foregroundStyle(.red)
+                .padding(.vertical, 6)
         }
+        .buttonStyle(.glass)
+        .tint(.red)
     }
 
     // MARK: - Threshold Sheet
@@ -550,7 +547,7 @@ struct StationDetailView: View {
                 }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .pegelCard()
         .sheet(isPresented: $showAddAlarm) {
             CustomAlarmEditorView(stationID: liveStation.id) { alarm in
                 store.addCustomAlarm(alarm, to: liveStation.id)
@@ -584,10 +581,54 @@ struct StationDetailView: View {
 
         @State private var selectedDate: Date?
         @State private var visibleDays: Int = 7
+        @State private var showAllThresholds = false
 
         private var visibleHistory: [(timestamp: Date, value: Double)] {
             let cutoff = Calendar.current.date(byAdding: .day, value: -visibleDays, to: Date())!
             return history.filter { $0.timestamp >= cutoff }
+        }
+
+        /// Alle Alarm-/Schwellenlinien der Station in einheitlicher Form.
+        private struct AlarmLine: Identifiable {
+            let id: String
+            let label: String
+            let value: Double
+            let color: Color
+            var emphasized: Bool = false
+        }
+
+        private var alarmLines: [AlarmLine] {
+            var lines: [AlarmLine] = []
+            if let threshold {
+                lines.append(AlarmLine(id: "threshold", label: "Alarmschwelle",
+                                       value: threshold, color: .red, emphasized: true))
+            }
+            if liveStation.enableCustomThreshold {
+                if let v = liveStation.alarmThresholdNormalLevel {
+                    lines.append(AlarmLine(id: "level-normal", label: "Vorwarnung", value: v, color: .yellow))
+                }
+                if let v = liveStation.alarmThresholdWarningLevel {
+                    lines.append(AlarmLine(id: "level-warning", label: "Warnstufe", value: v, color: .orange))
+                }
+                if let v = liveStation.alarmThresholdDangerLevel {
+                    lines.append(AlarmLine(id: "level-danger", label: "Kritisch", value: v, color: .red))
+                }
+            }
+            for alarm in liveStation.sortedCustomAlarms {
+                lines.append(AlarmLine(id: alarm.id.uuidString, label: alarm.name,
+                                       value: alarm.threshold, color: alarm.color))
+            }
+            return lines
+        }
+
+        /// Schwellen, die im aktuellen Y-Bereich liegen und als Linie gezeichnet werden.
+        private var visibleAlarmLines: [AlarmLine] {
+            alarmLines.filter { chartYDomain.contains($0.value) }
+        }
+
+        /// Schwellen oberhalb des sichtbaren Bereichs (werden als Hinweis angezeigt).
+        private var offScaleAlarmLines: [AlarmLine] {
+            alarmLines.filter { $0.value > chartYDomain.upperBound }
         }
 
         private var stats: (min: Double, max: Double, avg: Double)? {
@@ -600,11 +641,28 @@ struct StationDetailView: View {
             )
         }
 
+        /// Kompromiss zwischen Verlauf und Schwellen: Der Y-Bereich folgt primär
+        /// den Messwerten. Schwellen werden nur eingeschlossen, solange sie den
+        /// Verlauf nicht auf eine flache Linie zusammenstauchen (max. das
+        /// 1,5-fache der Datenspanne oberhalb des Maximums). Weiter entfernte
+        /// Schwellen erscheinen als Hinweis-Chip und lassen sich per Button
+        /// vollständig einblenden.
         private var chartYDomain: ClosedRange<Double> {
             guard let s = stats else { return 0...100 }
             let lo = s.min
             var hi = s.max
-            if let t = threshold { hi = max(hi, t) }
+            let dataRange = max(hi - lo, 1)
+            let lineValues = alarmLines.map(\.value)
+
+            if showAllThresholds {
+                if let maxLine = lineValues.max() { hi = max(hi, maxLine) }
+            } else {
+                let cap = hi + max(dataRange * 1.5, 20)
+                if let maxNearLine = lineValues.filter({ $0 <= cap }).max() {
+                    hi = max(hi, maxNearLine)
+                }
+            }
+
             let range = max(hi - lo, 1)
             let padding = max(range * 0.15, 5)
             return max(0, lo - padding)...(hi + padding)
@@ -662,6 +720,28 @@ struct StationDetailView: View {
                 .pickerStyle(.segmented)
                 .onChange(of: visibleDays) { selectedDate = nil }
 
+                if !offScaleAlarmLines.isEmpty || showAllThresholds {
+                    Button {
+                        withAnimation(.snappy) { showAllThresholds.toggle() }
+                    } label: {
+                        if showAllThresholds {
+                            Label("Auf Verlauf zoomen", systemImage: "arrow.down.right.and.arrow.up.left")
+                        } else {
+                            let n = offScaleAlarmLines.count
+                            Label(
+                                n == 1
+                                    ? "1 Schwelle oberhalb (\(Int(offScaleAlarmLines[0].value)) cm) – einblenden"
+                                    : "\(n) Schwellen oberhalb – einblenden",
+                                systemImage: "arrow.up.to.line"
+                            )
+                        }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                }
+
                 Chart {
                     ForEach(visibleHistory, id: \.timestamp) { point in
                         AreaMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
@@ -678,48 +758,12 @@ struct StationDetailView: View {
                             .foregroundStyle(by: .value("Reihe", "Wasserstand"))
                     }
 
-                    if let threshold {
-                        RuleMark(y: .value("Alarmschwelle", threshold))
-                            .foregroundStyle(.red.opacity(0.8))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [6, 3]))
+                    ForEach(visibleAlarmLines) { line in
+                        RuleMark(y: .value(line.label, line.value))
+                            .foregroundStyle(line.color.opacity(0.85))
+                            .lineStyle(StrokeStyle(lineWidth: line.emphasized ? 1 : 0.75, dash: [5, 3]))
                             .annotation(position: .top, alignment: .trailing) {
-                                alarmLabel(text: "Alarmschwelle \(Int(threshold)) cm", color: .red)
-                            }
-                    }
-
-                    if liveStation.enableCustomThreshold {
-                        if let normalLevel = liveStation.alarmThresholdNormalLevel {
-                            RuleMark(y: .value("Vorwarnstufe", normalLevel))
-                                .foregroundStyle(.yellow.opacity(0.9))
-                                .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [5, 3]))
-                                .annotation(position: .top, alignment: .trailing) {
-                                    alarmLabel(text: "Vorwarnung \(Int(normalLevel)) cm", color: .yellow)
-                                }
-                        }
-                        if let warningLevel = liveStation.alarmThresholdWarningLevel {
-                            RuleMark(y: .value("Warnstufe", warningLevel))
-                                .foregroundStyle(.orange.opacity(0.9))
-                                .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [5, 3]))
-                                .annotation(position: .top, alignment: .trailing) {
-                                    alarmLabel(text: "Warnstufe \(Int(warningLevel)) cm", color: .orange)
-                                }
-                        }
-                        if let dangerLevel = liveStation.alarmThresholdDangerLevel {
-                            RuleMark(y: .value("Gefahrenstufe", dangerLevel))
-                                .foregroundStyle(.red.opacity(0.9))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 3]))
-                                .annotation(position: .top, alignment: .trailing) {
-                                    alarmLabel(text: "Kritisch \(Int(dangerLevel)) cm", color: .red)
-                                }
-                        }
-                    }
-
-                    ForEach(liveStation.sortedCustomAlarms) { alarm in
-                        RuleMark(y: .value(alarm.name, alarm.threshold))
-                            .foregroundStyle(alarm.color.opacity(0.85))
-                            .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [4, 4]))
-                            .annotation(position: .top, alignment: .trailing) {
-                                alarmLabel(text: "\(alarm.name) \(Int(alarm.threshold)) cm", color: alarm.color)
+                                alarmLabel(text: "\(line.label) \(Int(line.value)) cm", color: line.color)
                             }
                     }
 
@@ -775,8 +819,8 @@ struct StationDetailView: View {
             }
             }
             .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .pegelCard()
+            .clipShape(RoundedRectangle(cornerRadius: PegelDesign.cardCornerRadius))
         }
 
         private func statCell(label: String, value: String, color: Color) -> some View {
