@@ -32,6 +32,26 @@ struct StationRowView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: station.alarmLevel)
+        // VoiceOver: eine zusammenhängende Ansage statt vieler Einzel-Elemente
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        var parts = [station.displayShortname, station.waterDisplayName]
+        if station.noDataAvailable {
+            parts.append("Keine Daten verfügbar")
+        } else if let value = station.lastValue {
+            parts.append("\(Int(value)) Zentimeter")
+            parts.append(station.alarmLevel.label)
+            if let trend = station.trend, abs(trend) > 0.5 {
+                parts.append(trend > 0 ? "steigend" : "fallend")
+            }
+        }
+        if station.isAlarmMuted {
+            parts.append("Alarme stummgeschaltet")
+        }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: - Subviews

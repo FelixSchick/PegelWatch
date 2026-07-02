@@ -26,6 +26,20 @@ Stand: Juli 2026 · Zielplattform: iOS 26+
   Detailansicht.
 - **Haptik**: `sensoryFeedback` bei Alarmstufenwechsel in der
   Detailansicht und bei neuen Alarmen in der Tab-Übersicht.
+- **Tutorial-Redesign**: Onboarding nutzt jetzt Systemfarben/Materials,
+  Liquid-Glass-Karten (`pegelCard`) und Glass-Buttons, funktioniert in
+  Dark & Light Mode und ist Dynamic-Type-tauglich.
+- **MNW/MHW-Referenzwerte**: Charakteristische Werte aus der
+  PEGELONLINE-API als dezente Kontextlinien im Detail-Chart (ohne die
+  Y-Skalierung zu beeinflussen) und als Zeilen in der Meta-Info.
+- **Accessibility**: VoiceOver-Labels für Pegel-Gauge, Watchlist-Zeilen,
+  Karten-Marker, Lautstärkeregler und Toolbar-Buttons; Dynamic-Type-Fixes
+  für die großen Pegelzahlen.
+- **Code-Review-Härtung** (8-Angle-Review): u.a. Stummschaltungs-Latch-Bug
+  behoben, .criticalAlert-Berechtigung angefragt, AVAudioSession nach
+  Vorschau freigegeben, Widget lädt 1 Tag statt 30 Tage Historie,
+  geteilte Chart-Skalierung (PegelChartScale) und zentrales
+  Quellen-Routing (LevelDataProvider).
 
 ## 2. Design-Vereinheitlichung – nächste Schritte
 
@@ -82,7 +96,8 @@ Stand: Juli 2026 · Zielplattform: iOS 26+
 
 ## 4. Empfohlene Reihenfolge (verbleibend)
 
-1. Tutorial-Redesign + Accessibility-Audit (Konsistenz abschließen)
-2. TipKit, Chart-Scrolling, MNW/MHW-Referenzwerte (Feinschliff)
-3. Live-Activity-Ausbau (Dynamic Island, Watch Smart Stack)
-4. Interactive Snippets & watchOS-App (größere Ausbaustufen)
+1. TipKit-Tipps & Chart-Scrolling (Feinschliff)
+2. Live-Activity-Ausbau (Dynamic Island, Watch Smart Stack)
+3. Interactive Snippets & watchOS-App (größere Ausbaustufen)
+4. Kritisches-Alarm-Entitlement bei Apple beantragen (dann greifen
+   Lautstärkeregler & Stummmodus-Durchbruch automatisch)

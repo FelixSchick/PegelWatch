@@ -25,6 +25,8 @@ struct StationMapView: View {
                     ) {
                         marker(for: station)
                             .onTapGesture { selectedStation = station }
+                            .accessibilityLabel(mapAccessibilityLabel(for: station))
+                            .accessibilityAddTraits(.isButton)
                     }
                 }
             }
@@ -50,6 +52,17 @@ struct StationMapView: View {
                 }
             }
         }
+    }
+
+    private func mapAccessibilityLabel(for station: WatchedStation) -> String {
+        var parts = [station.displayShortname]
+        if station.noDataAvailable {
+            parts.append("keine Daten")
+        } else if let value = station.lastValue {
+            parts.append("\(Int(value)) Zentimeter")
+            parts.append(station.alarmLevel.label)
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func marker(for station: WatchedStation) -> some View {

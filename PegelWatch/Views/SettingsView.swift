@@ -92,6 +92,9 @@ struct SettingsView: View {
                             .foregroundStyle(.tint)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(previewPlayer.playingSound == sound
+                                        ? "Vorschau stoppen"
+                                        : "Ton \(sound.displayName) vorhören")
 
                     Label(sound.displayName, systemImage: sound.systemImage)
 
@@ -131,6 +134,9 @@ struct SettingsView: View {
                     Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Alarm-Lautstärke")
+            .accessibilityValue("\(Int(soundSettings.criticalVolume * 100)) Prozent")
 
             Toggle(isOn: $soundSettings.useCriticalAlerts) {
                 Label("Kritische Warnung", systemImage: "exclamationmark.triangle")

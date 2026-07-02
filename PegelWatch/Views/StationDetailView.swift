@@ -22,6 +22,9 @@ struct StationDetailView: View {
     @State private var isLoadingHistory = false
     @State private var historyError: String?
 
+    // Charakteristische Kennwerte (MNW/MHW) — leer bei Fehler oder Luxemburg-Stationen
+    @State private var characteristicValues: [String: Double] = [:]
+
     @State private var showHistory = false
     @State private var showAddAlarm = false
     @State private var alarmToEdit: CustomAlarm?
@@ -101,11 +104,15 @@ struct StationDetailView: View {
                 if let value = liveStation.lastValue {
                     Text("\(Int(value))")
                         .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
                         .foregroundStyle(liveStation.alarmLevel.color)
                         .contentTransition(.numericText())
                 } else {
                     Text("N/A")
                         .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
@@ -121,6 +128,13 @@ struct StationDetailView: View {
                 }
                 .padding(.bottom, 4)
             }
+            // VoiceOver: Zahl, Einheit und Status als ein Element vorlesen
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                liveStation.lastValue.map {
+                    "Aktueller Pegelstand \(Int($0)) Zentimeter, Status \(liveStation.alarmLevel.label)"
+                } ?? "Keine Daten"
+            )
 
             HStack(spacing: 12) {
                 Label(liveStation.alarmLevel.label, systemImage: liveStation.alarmLevel.systemImage)
@@ -190,6 +204,14 @@ struct StationDetailView: View {
             if let lat = liveStation.latitude, let lon = liveStation.longitude {
                 Divider().padding(.leading, 44)
                 infoRow(label: "Koordinaten", icon: "location", value: String(format: "%.4f°, %.4f°", lat, lon))
+            }
+            if let mnw = characteristicValues["MNW"] {
+                Divider().padding(.leading, 44)
+                infoRow(label: "MNW", icon: "arrow.down.to.line", value: "\(Int(mnw)) cm")
+            }
+            if let mhw = characteristicValues["MHW"] {
+                Divider().padding(.leading, 44)
+                infoRow(label: "MHW", icon: "arrow.up.to.line", value: "\(Int(mhw)) cm")
             }
             Divider().padding(.leading, 44)
             infoRow(
@@ -574,7 +596,8 @@ struct StationDetailView: View {
             isLoading: isLoadingHistory,
             threshold: liveStation.alarmThreshold,
             alarmColor: liveStation.alarmLevel.color,
-            liveStation: liveStation
+            liveStation: liveStation,
+            characteristicValues: characteristicValues
         )
     }
 
@@ -584,6 +607,8 @@ struct StationDetailView: View {
         let threshold: Double?
         let alarmColor: Color
         let liveStation: WatchedStation
+        /// MNW/MHW als dezente Kontextlinien — beeinflussen die Y-Skalierung nicht
+        var characteristicValues: [String: Double] = [:]
 
         @State private var selectedDate: Date?
         @State private var visibleDays: Int = 7
@@ -755,6 +780,25 @@ struct StationDetailView: View {
                             }
                     }
 
+                    // Dezente Kontextlinien (MNW/MHW) — nur wenn sie in der
+                    // aktuellen Y-Domain liegen; sie skalieren das Chart nicht.
+                    if let mnw = characteristicValues["MNW"], domain.contains(mnw) {
+                        RuleMark(y: .value("MNW", mnw))
+                            .foregroundStyle(.gray.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .annotation(position: .top, alignment: .leading) {
+                                alarmLabel(text: "MNW", color: .gray)
+                            }
+                    }
+                    if let mhw = characteristicValues["MHW"], domain.contains(mhw) {
+                        RuleMark(y: .value("MHW", mhw))
+                            .foregroundStyle(.teal.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .annotation(position: .top, alignment: .leading) {
+                                alarmLabel(text: "MHW", color: .teal)
+                            }
+                    }
+
                     if let date = selectedDate, let point = nearest(to: date) {
                         RuleMark(x: .value("Auswahl", point.timestamp))
                             .foregroundStyle(.secondary.opacity(0.4))
@@ -773,6 +817,12 @@ struct StationDetailView: View {
                     }
                 }
                 .chartXSelection(value: $selectedDate)
+                .accessibilityLabel("Pegelverlauf")
+                .accessibilityHint(
+                    stats.map {
+                        "Minimum \(Int($0.min)) Zentimeter, Maximum \(Int($0.max)) Zentimeter im sichtbaren Zeitraum"
+                    } ?? ""
+                )
                 .frame(height: 220)
                 .overlay {
                     if isLoading {
@@ -829,10 +879,10 @@ struct StationDetailView: View {
         isLoadingHistory = true
         defer { isLoadingHistory = false }
         do {
-            if HeichwaasserAPI.isLuxembourgStation(station.id) {
-                levelHistory = try await HeichwaasserAPI.shared.fetchHistory(for: station.id)
-            } else {
-                levelHistory = try await PegelOnlineAPI.shared.fetchAllLevels(for: station.id)
+            levelHistory = try await LevelDataProvider.history(for: station.id)
+            if !HeichwaasserAPI.isLuxembourgStation(station.id) {
+                // MNW/MHW sind nur Kontext — Fehler still ignorieren
+                characteristicValues = (try? await PegelOnlineAPI.shared.fetchCharacteristicValues(for: station.id)) ?? [:]
             }
         } catch {
             historyError = error.localizedDescription

@@ -67,7 +67,26 @@ actor PegelOnlineAPI {
         return try historyDecoder.decode([APILevelMeasurement].self, from: data).map { ($0.timestamp, $0.value) }
     }
 
+    /// Lädt charakteristische Kennwerte (z.B. MNW, MHW) der Zeitreihe W
+    /// und mappt shortname → value (in cm).
+    func fetchCharacteristicValues(for stationUUID: String) async throws -> [String: Double] {
+        let data = try await get(url: makeURL(
+            path: "/stations/\(stationUUID)/W.json",
+            queryItems: [URLQueryItem(name: "includeCharacteristicValues", value: "true")]
+        ))
+        let timeseries = try characteristicDecoder.decode(APITimeseriesResponse.self, from: data)
+        var values: [String: Double] = [:]
+        for entry in timeseries.characteristicValues ?? [] {
+            values[entry.shortname] = entry.value
+        }
+        return values
+    }
+
     // MARK: - Private
+
+    /// Expliziter Decoder ohne Key-Konvertierung — die Feldnamen der
+    /// characteristicValues-Antwort sind bereits camelCase.
+    private let characteristicDecoder = JSONDecoder()
 
     private func makeURL(path: String, queryItems: [URLQueryItem] = []) throws -> URL {
         var components = URLComponents(string: baseURL + path)
@@ -87,6 +106,17 @@ actor PegelOnlineAPI {
         guard http.statusCode == 200 else { throw PegelAPIError.httpError(http.statusCode) }
         return data
     }
+}
+
+// MARK: - Characteristic Values DTOs
+
+private struct APITimeseriesResponse: Decodable {
+    let characteristicValues: [APICharacteristicValue]?
+}
+
+private struct APICharacteristicValue: Decodable {
+    let shortname: String
+    let value: Double
 }
 
 // MARK: - Errors

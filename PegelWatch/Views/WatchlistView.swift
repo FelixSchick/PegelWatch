@@ -150,6 +150,7 @@ struct WatchlistView: View {
                     .foregroundStyle(sortBySeverity ? .orange : .primary)
             }
             .help(sortBySeverity ? "Sortierung: nach Alarmstufe" : "Sortierung: Standard")
+            .accessibilityLabel(sortBySeverity ? "Nach Alarmstufe sortiert" : "Standard-Sortierung")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
@@ -163,6 +164,7 @@ struct WatchlistView: View {
                 }
             }
             .disabled(store.isRefreshing)
+            .accessibilityLabel("Pegel aktualisieren")
         }
     }
 }
