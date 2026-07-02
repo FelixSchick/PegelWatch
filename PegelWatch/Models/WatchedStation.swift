@@ -26,6 +26,10 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     var alarmTriggered: Bool = false
     var lastNotifiedAt: Date?
 
+    /// Bis zu diesem Zeitpunkt werden keine Alarm-Mitteilungen gesendet
+    /// (per Schnellaktion aus der Benachrichtigung oder in der Detailansicht).
+    var alarmMutedUntil: Date?
+
     /// `true` wenn die API für diese Station keine Messdaten bereitstellt (HTTP 404 auf /W/currentmeasurement)
     var noDataAvailable: Bool = false
 
@@ -42,7 +46,17 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     }
 
     var displayName: String {
-        longname.isEmpty ? shortname : longname.capitalized
+        (longname.isEmpty ? shortname : longname.capitalized).replacingStauAbbreviations
+    }
+
+    /// Kurzname für die Anzeige (mit Oberstau/Unterstau statt OP/UP).
+    var displayShortname: String {
+        shortname.replacingStauAbbreviations
+    }
+
+    var isAlarmMuted: Bool {
+        guard let until = alarmMutedUntil else { return false }
+        return until > Date()
     }
 
     var trend: Double? {

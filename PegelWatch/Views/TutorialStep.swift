@@ -99,7 +99,10 @@ struct TutorialView: View {
 
     var body: some View {
         ZStack {
-            // Background
+            // Background: dezenter, adaptiver Farbverlauf über dem Systemhintergrund
+            Color(.systemBackground)
+                .ignoresSafeArea()
+
             backgroundGradient
                 .ignoresSafeArea()
 
@@ -127,7 +130,9 @@ struct TutorialView: View {
                     HStack(spacing: 8) {
                         ForEach(0..<tutorialSteps.count, id: \.self) { i in
                             Capsule()
-                                .fill(i == currentStep ? Color.white : Color.white.opacity(0.35))
+                                .fill(i == currentStep
+                                      ? tutorialSteps[currentStep].iconColor
+                                      : Color.secondary.opacity(0.35))
                                 .frame(width: i == currentStep ? 24 : 8, height: 8)
                                 .animation(.spring(response: 0.3), value: currentStep)
                         }
@@ -137,15 +142,16 @@ struct TutorialView: View {
                     Button(action: advance) {
                         HStack(spacing: 8) {
                             Text(isLast ? "Los geht's!" : "Weiter")
-                                .font(.system(size: 17, weight: .semibold))
+                                .fontWeight(.semibold)
                             Image(systemName: isLast ? "checkmark" : "arrow.right")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.subheadline.weight(.semibold))
                         }
-                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+                        .padding(.vertical, 6)
                     }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
+                    .tint(.blue)
                     .padding(.horizontal, 24)
                 }
                 .padding(.bottom, 44)
@@ -160,19 +166,17 @@ struct TutorialView: View {
         Button("Überspringen") {
             onFinish()
         }
-        .font(.system(size: 15, weight: .medium))
-        .foregroundStyle(.white.opacity(0.7))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(.white.opacity(0.12), in: Capsule())
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.secondary)
+        .buttonStyle(.glass)
     }
 
     private var backgroundGradient: some View {
         let step = tutorialSteps[currentStep]
         return LinearGradient(
             colors: [
-                step.iconColor.mix(with: .black, by: 0.55),
-                step.iconColor.mix(with: .black, by: 0.75),
+                step.iconColor.opacity(0.22),
+                step.iconColor.opacity(0.04),
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -211,38 +215,43 @@ private struct StepCard: View {
                 // Badge
                 if let badge = step.badge {
                     Text(badge.uppercased())
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.caption2.weight(.bold))
                         .tracking(1.5)
                         .foregroundStyle(step.iconColor)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(step.iconColor.opacity(0.18), in: Capsule())
+                        .background(step.iconColor.opacity(0.15), in: Capsule())
                 }
 
                 Text(step.title)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                    .foregroundStyle(.primary)
                     .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(step.body)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let hint = step.hint {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "lightbulb.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.yellow)
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
                             .padding(.top, 1)
                         Text(hint)
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white.opacity(0.7))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                             .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(14)
-                    .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .pegelCard(tint: .orange.opacity(0.1), cornerRadius: 12)
                 }
             }
             .padding(.horizontal, 28)
@@ -282,7 +291,7 @@ private struct WelcomeIllustration: View {
                 .frame(width: 180, height: 180)
 
             Circle()
-                .fill(color.opacity(0.1))
+                .fill(color.opacity(0.08))
                 .frame(width: 240, height: 240)
                 .scaleEffect(wave ? 1.06 : 1.0)
                 .animation(.easeInOut(duration: 2).repeatForever(autoreverses: true), value: wave)
@@ -321,20 +330,20 @@ private struct WatchlistIllustration: View {
                         }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(row.name)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
                         Text("RHEIN · km 688")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.5))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text(row.value)
-                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .font(.system(.subheadline, design: .monospaced, weight: .bold))
                         .foregroundStyle(row.level)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                .pegelCard(cornerRadius: 12)
             }
         }
         .padding(.horizontal, 24)
@@ -352,15 +361,15 @@ private struct SearchIllustration: View {
             // Fake search bar
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
                 Text(typed.isEmpty ? "Station oder Gewässer…" : typed)
-                    .font(.system(size: 15))
-                    .foregroundStyle(typed.isEmpty ? .white.opacity(0.35) : .white)
+                    .font(.subheadline)
+                    .foregroundStyle(typed.isEmpty ? .secondary : .primary)
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            .pegelCard(cornerRadius: 12)
 
             // Results
             VStack(spacing: 8) {
@@ -368,11 +377,11 @@ private struct SearchIllustration: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(name)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
                             Text("RHEIN")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white.opacity(0.5))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: name == "KÖLN" && !typed.isEmpty ? "checkmark.circle.fill" : "plus.circle")
@@ -381,7 +390,7 @@ private struct SearchIllustration: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+                    .pegelCard(cornerRadius: 10)
                 }
             }
         }
@@ -415,15 +424,16 @@ private struct DetailIllustration: View {
                     Text(animate ? "423" : "400")
                         .font(.system(size: 52, weight: .bold, design: .rounded))
                         .foregroundStyle(color)
+                        .minimumScaleFactor(0.6)
                         .contentTransition(.numericText())
                         .animation(.easeInOut(duration: 1.0), value: animate)
                     Text("cm")
                         .font(.title3)
-                        .foregroundStyle(.white.opacity(0.6))
+                        .foregroundStyle(.secondary)
                         .padding(.bottom, 4)
                 }
                 Label("Normal", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(.green)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
@@ -431,7 +441,7 @@ private struct DetailIllustration: View {
             }
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity)
-            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+            .pegelCard(cornerRadius: 14)
 
             // Mini chart bars
             HStack(alignment: .bottom, spacing: 6) {
@@ -446,7 +456,7 @@ private struct DetailIllustration: View {
             .frame(height: 60)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+            .pegelCard(cornerRadius: 12)
         }
         .padding(.horizontal, 24)
         .onAppear { animate = true }
@@ -480,16 +490,16 @@ private struct AlarmIllustration: View {
                     Circle().fill(col.opacity(0.2)).frame(width: 10, height: 10)
                         .overlay(Circle().fill(col).frame(width: 5, height: 5))
                     Text(name)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.primary)
                     Spacer()
                     Text(val)
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .font(.system(.footnote, design: .monospaced, weight: .bold))
                         .foregroundStyle(col)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                .pegelCard(cornerRadius: 10)
             }
         }
         .padding(.horizontal, 24)
@@ -511,14 +521,15 @@ private struct WidgetIllustration: View {
                 Spacer()
                 Text("423")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
+                    .minimumScaleFactor(0.7)
                 Text("cm · KÖLN")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .padding(14)
             .frame(width: 120, height: 120)
-            .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
+            .pegelCard(cornerRadius: 20)
             .overlay(
                 RoundedRectangle(cornerRadius: 20)
                     .strokeBorder(color.opacity(pulse ? 0.7 : 0.2), lineWidth: 2)
@@ -532,28 +543,29 @@ private struct WidgetIllustration: View {
                         .font(.system(size: 16))
                         .foregroundStyle(color)
                     Text("PegelWatch")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.8))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
                 }
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text("423")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(color)
+                        .minimumScaleFactor(0.7)
                     Text("cm")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white.opacity(0.6))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
                 Text("KÖLN · Normal")
-                    .font(.system(size: 11))
+                    .font(.caption2)
                     .foregroundStyle(.green)
                 Text("Aktualisiert gerade eben")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .padding(14)
             .frame(width: 160, height: 120)
-            .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
+            .pegelCard(cornerRadius: 20)
             .overlay(
                 RoundedRectangle(cornerRadius: 20)
                     .strokeBorder(color.opacity(pulse ? 0.4 : 0.1), lineWidth: 2)

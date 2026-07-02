@@ -21,6 +21,7 @@ class StationStore {
     init() {
         load()
         observeICloudChanges()
+        SpotlightIndexer.reindex(watchedStations)
     }
 
     // MARK: - Watchlist
@@ -28,6 +29,7 @@ class StationStore {
     func add(_ station: WatchedStation) {
         guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
         watchedStations.append(station)
+        SpotlightIndexer.index(station)
         Task {
             await StationStore.shared.refreshAll()
         }
@@ -38,6 +40,7 @@ class StationStore {
             Task { await LiveActivityManager.shared.end(for: station) }
         }
         watchedStations.removeAll { $0.id == id }
+        SpotlightIndexer.remove(id: id)
     }
 
     func isWatching(_ stationID: String) -> Bool {
@@ -61,6 +64,17 @@ class StationStore {
     func setAlarmEnabled(id: String, enabled: Bool) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { return }
         watchedStations[idx].alarmEnabled = enabled
+    }
+
+    /// Unterdrückt Alarm-Mitteilungen der Station für die angegebene Dauer.
+    func muteAlarms(for stationID: String, duration: TimeInterval) {
+        guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
+        watchedStations[idx].alarmMutedUntil = Date().addingTimeInterval(duration)
+    }
+
+    func unmuteAlarms(for stationID: String) {
+        guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
+        watchedStations[idx].alarmMutedUntil = nil
     }
 
     func setCustomThreshold(id: String, enabled: Bool) {
@@ -160,6 +174,11 @@ class StationStore {
             updated[idx].lastUpdated   = Date()
 
             let station = updated[idx]
+
+            // Solange stummgeschaltet, wird die Alarm-Auswertung komplett pausiert:
+            // Der Trigger-Latch darf nicht gesetzt werden, sonst bliebe eine
+            // Überschreitung nach Ablauf der Stummschaltung dauerhaft unbemerkt.
+            guard !station.isAlarmMuted else { continue }
 
             // Main threshold alarm
             if station.alarmEnabled, let threshold = station.alarmThreshold {

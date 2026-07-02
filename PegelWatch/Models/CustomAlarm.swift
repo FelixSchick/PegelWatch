@@ -15,6 +15,7 @@ struct CustomAlarm: Identifiable, Codable, Hashable {
     var threshold: Double      // cm value that triggers this alarm
     var colorHex: String       // stored as hex so it's Codable
     var notificationsEnabled: Bool = true
+    var soundID: String?       // AlarmSound rawValue; nil = global default sound
 
     // MARK: - Helpers
 

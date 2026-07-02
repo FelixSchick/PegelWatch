@@ -7,18 +7,22 @@
 
 import SwiftUI
 import WidgetKit
+import Charts
 
 struct PegelWatchWidgetEntry: TimelineEntry {
     let date: Date
     let stations: [WatchedStation]   // [pinned] for small/medium, all for large
     let allStations: [WatchedStation] // always full list (used by large widget)
+    /// 24h-Verlauf der Hauptstation für die Sparkline (Medium-Widget)
+    var primaryHistory: [(timestamp: Date, value: Double)] = []
 
     var primary: WatchedStation? { stations.first }
 
     static let placeholder = PegelWatchWidgetEntry(
         date: .now,
         stations: [.preview],
-        allStations: [.preview, .previewAlarming]
+        allStations: [.preview, .previewAlarming],
+        primaryHistory: Array(APILevelMeasurement.previewHistory.suffix(24))
     )
 }
 
@@ -89,7 +93,15 @@ struct PegelWatchWidgetProvider: AppIntentTimelineProvider {
             pinned = all.first
         }
         let pinnedList: [WatchedStation] = pinned.map { [$0] } ?? []
-        return PegelWatchWidgetEntry(date: .now, stations: pinnedList, allStations: all)
+        let history = await fetchDayHistory(for: pinned)
+        return PegelWatchWidgetEntry(date: .now, stations: pinnedList,
+                                     allStations: all, primaryHistory: history)
+    }
+
+    /// Letzte 24 h Verlauf für die Sparkline; Fehler ergeben eine leere Liste.
+    private func fetchDayHistory(for station: WatchedStation?) async -> [(timestamp: Date, value: Double)] {
+        guard let station else { return [] }
+        return (try? await LevelDataProvider.history(for: station.id, days: 1)) ?? []
     }
 }
 
@@ -124,6 +136,7 @@ struct PegelWatchWidgetBundle: WidgetBundle {
         PegelWatchLargeWidget()     // large, always shows full watchlist
         PegelWatchLiveActivityWidget()
         PegelWatchCriticalLiveActivityWidget()
+        PegelWatchOpenControl()     // Control-Center-Baustein
     }
 }
 
@@ -310,29 +323,42 @@ struct MediumWidgetView: View {
                     }
                 }
 
-                Spacer(minLength: 16)
+                Spacer(minLength: 12)
 
-                VStack(alignment: .trailing, spacing: 8) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    if entry.primaryHistory.count >= 2 {
+                        SparklineView(
+                            history: entry.primaryHistory,
+                            color: station.alarmLevel.color,
+                            threshold: station.alarmThreshold
+                        )
+                        .frame(width: 120, height: 44)
+                    }
+                    // Schwelle immer beziffern — die Sparkline zeichnet die
+                    // Linie nur, wenn sie nah genug am Verlauf liegt.
                     if let threshold = station.alarmThreshold {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("Schwelle")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                            Text("\(Int(threshold)) cm")
-                                .font(.caption.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(station.alarmLevel.color)
-                        }
+                        Text("Schwelle \(Int(threshold)) cm")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(station.alarmLevel.color)
                     }
 
-                    Spacer()
+                    Spacer(minLength: 0)
 
-                    if let updated = station.lastUpdated {
-                        HStack(spacing: 3) {
-                            Image(systemName: "clock")
-                            Text(updated, style: .relative)
+                    HStack(spacing: 6) {
+                        if let updated = station.lastUpdated {
+                            HStack(spacing: 3) {
+                                Image(systemName: "clock")
+                                Text(updated, style: .relative)
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(station.isStale ? Color.orange : Color.secondary)
                         }
-                        .font(.caption2)
-                        .foregroundStyle(station.isStale ? Color.orange : Color.secondary)
+                        Button(intent: RefreshWidgetIntent()) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     Text(HeichwaasserAPI.isLuxembourgStation(station.id) ? "Héichwaasser.lu" : "PegelOnline")
@@ -352,6 +378,52 @@ struct MediumWidgetView: View {
             }
             .padding()
         }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────
+// MARK: - Sparkline (24h-Miniverlauf)
+// ────────────────────────────────────────────────────────────────
+
+private struct SparklineView: View {
+    let history: [(timestamp: Date, value: Double)]
+    let color: Color
+    let threshold: Double?
+
+    private var yDomain: ClosedRange<Double> {
+        let values = history.map(\.value)
+        guard let lo = values.min(), let hi = values.max() else { return 0...100 }
+        return PegelChartScale.domain(
+            dataMin: lo, dataMax: hi,
+            lines: threshold.map { [$0] } ?? [],
+            minPadding: 2
+        )
+    }
+
+    var body: some View {
+        Chart {
+            ForEach(history, id: \.timestamp) { point in
+                AreaMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
+                    .foregroundStyle(.linearGradient(
+                        colors: [color.opacity(0.25), color.opacity(0.02)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                    .interpolationMethod(.catmullRom)
+                LineMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
+                    .foregroundStyle(color)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+                    .interpolationMethod(.catmullRom)
+            }
+            if let threshold, yDomain.contains(threshold) {
+                RuleMark(y: .value("Schwelle", threshold))
+                    .foregroundStyle(.red.opacity(0.6))
+                    .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [3, 2]))
+            }
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartYScale(domain: yDomain)
+        .chartLegend(.hidden)
     }
 }
 
@@ -377,6 +449,12 @@ struct LargeWidgetView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+                Button(intent: RefreshWidgetIntent()) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)

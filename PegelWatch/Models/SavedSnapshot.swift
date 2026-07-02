@@ -39,7 +39,7 @@ struct SnapshotStationData: Identifiable, Codable {
         var value: Double
     }
 
-    var displayName: String { longname.isEmpty ? shortname : longname.capitalized }
+    var displayName: String { (longname.isEmpty ? shortname : longname.capitalized).replacingStauAbbreviations }
     var waterDisplayName: String { waterLongname.isEmpty ? waterShortname : waterLongname.capitalized }
 
     var trend: Double? {

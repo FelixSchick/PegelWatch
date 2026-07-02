@@ -8,6 +8,8 @@ struct PegelWatchApp: App {
     
     init() {
         registerBackgroundTasks()
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        NotificationManager.shared.registerCategories()
     }
 
     var body: some Scene {

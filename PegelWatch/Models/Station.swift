@@ -3,6 +3,56 @@ import Foundation
 // Matches the PegelOnline REST API response
 // GET https://pegelonline.wsv.de/webservices/rest-api/v2/stations.json
 
+extension String {
+    /// Ersetzt die PEGELONLINE-Kürzel "OP" (Oberpegel) und "UP" (Unterpegel)
+    /// in Stationsnamen durch "Oberstau" / "Unterstau" für die Anzeige,
+    /// z.B. "IFFEZHEIM OP" → "IFFEZHEIM Oberstau".
+    var replacingStauAbbreviations: String {
+        split(separator: " ").map { token in
+            switch token.uppercased() {
+            case "OP": return "Oberstau"
+            case "UP": return "Unterstau"
+            default:   return String(token)
+            }
+        }.joined(separator: " ")
+    }
+}
+
+/// Gemeinsame Y-Skalierung für alle Pegel-Charts (Detail-Chart & Widget-Sparkline):
+/// Der Bereich folgt primär den Messwerten; Schwellenlinien werden nur einbezogen,
+/// solange sie den Verlauf nicht zusammenstauchen (max. 1,5× Datenspanne bzw.
+/// mindestens 20 cm Spielraum ober-/unterhalb der Daten).
+enum PegelChartScale {
+    static func domain(
+        dataMin: Double,
+        dataMax: Double,
+        lines: [Double],
+        includeAllLines: Bool = false,
+        minPadding: Double = 5
+    ) -> ClosedRange<Double> {
+        var lo = dataMin
+        var hi = dataMax
+        let dataRange = max(hi - lo, 1)
+
+        if includeAllLines {
+            if let maxLine = lines.max() { hi = max(hi, maxLine) }
+            if let minLine = lines.min() { lo = min(lo, minLine) }
+        } else {
+            let headroom = max(dataRange * 1.5, 20)
+            if let nearestAbove = lines.filter({ $0 <= hi + headroom }).max() {
+                hi = max(hi, nearestAbove)
+            }
+            if let nearestBelow = lines.filter({ $0 >= lo - headroom }).min() {
+                lo = min(lo, nearestBelow)
+            }
+        }
+
+        let range = max(hi - lo, 1)
+        let padding = max(range * 0.15, minPadding)
+        return max(0, lo - padding)...(hi + padding)
+    }
+}
+
 struct Station: Identifiable, Codable, Hashable {
     let uuid: String
     let number: String
@@ -17,7 +67,12 @@ struct Station: Identifiable, Codable, Hashable {
     var id: String { uuid }
 
     var displayName: String {
-        longname.isEmpty ? shortname : longname.capitalized
+        (longname.isEmpty ? shortname : longname.capitalized).replacingStauAbbreviations
+    }
+
+    /// Kurzname für die Anzeige (mit Oberstau/Unterstau statt OP/UP).
+    var displayShortname: String {
+        shortname.replacingStauAbbreviations
     }
 }
 

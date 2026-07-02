@@ -4,6 +4,8 @@ struct WatchlistView: View {
 
     @State private var store = StationStore.shared
     @State private var snapshotStore = SnapshotStore.shared
+    @State private var router = AppRouter.shared
+    @State private var path: [WatchedStation] = []
     @State private var sortBySeverity = false
     @State private var showingSnapshotBuilder = false
     @State private var showingSavedSnapshots = false
@@ -20,7 +22,7 @@ struct WatchlistView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if store.watchedStations.isEmpty {
                     emptyState
@@ -33,6 +35,8 @@ struct WatchlistView: View {
             .task {
                 await store.refreshAll()
             }
+            .onAppear { openPendingStation() }
+            .onChange(of: router.pendingStationID) { openPendingStation() }
             .refreshable {
                 await store.refreshAll()
             }
@@ -48,6 +52,14 @@ struct WatchlistView: View {
                 SavedSnapshotsView()
             }
         }
+    }
+
+    /// Öffnet die per Deep-Link (Spotlight) angeforderte Station.
+    private func openPendingStation() {
+        guard let id = router.pendingStationID,
+              let station = store.watchedStations.first(where: { $0.id == id }) else { return }
+        router.pendingStationID = nil
+        path = [station]
     }
 
     // MARK: - Subviews
@@ -138,6 +150,7 @@ struct WatchlistView: View {
                     .foregroundStyle(sortBySeverity ? .orange : .primary)
             }
             .help(sortBySeverity ? "Sortierung: nach Alarmstufe" : "Sortierung: Standard")
+            .accessibilityLabel(sortBySeverity ? "Nach Alarmstufe sortiert" : "Standard-Sortierung")
         }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
@@ -151,6 +164,7 @@ struct WatchlistView: View {
                 }
             }
             .disabled(store.isRefreshing)
+            .accessibilityLabel("Pegel aktualisieren")
         }
     }
 }
