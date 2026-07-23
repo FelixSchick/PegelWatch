@@ -4,21 +4,23 @@ import Foundation
 /// Gemeinsame Quelle für Stummschalt-Dauern und ihre Labels —
 /// genutzt von Mitteilungs-Aktionen und dem Menü in der Detailansicht.
 enum AlarmMuteDuration: CaseIterable {
-    case oneHour, sixHours, oneDay
+    case thirtyMinutes, oneHour, sixHours, oneDay
 
     var seconds: TimeInterval {
         switch self {
-        case .oneHour:  return 60 * 60
-        case .sixHours: return 6 * 60 * 60
-        case .oneDay:   return 24 * 60 * 60
+        case .thirtyMinutes: return 30 * 60
+        case .oneHour:       return 60 * 60
+        case .sixHours:      return 6 * 60 * 60
+        case .oneDay:        return 24 * 60 * 60
         }
     }
 
     var label: String {
         switch self {
-        case .oneHour:  return "1 Stunde"
-        case .sixHours: return "6 Stunden"
-        case .oneDay:   return "24 Stunden"
+        case .thirtyMinutes: return "30 Minuten"
+        case .oneHour:       return "1 Stunde"
+        case .sixHours:      return "6 Stunden"
+        case .oneDay:        return "24 Stunden"
         }
     }
 }
@@ -28,10 +30,11 @@ class NotificationManager {
     static let shared = NotificationManager()
 
     // Kategorie & Aktionen für Pegel-Alarme
-    static let alarmCategory      = "PEGEL_ALARM"
-    static let muteOneHourAction  = "MUTE_1H"
-    static let muteOneDayAction   = "MUTE_24H"
-    static let stationIDKey       = "stationID"
+    static let alarmCategory          = "PEGEL_ALARM"
+    static let muteHalfHourAction     = "MUTE_30M"
+    static let muteOneHourAction      = "MUTE_1H"
+    static let muteOneDayAction       = "MUTE_24H"
+    static let stationIDKey           = "stationID"
 
     func requestPermission() async {
         do {
@@ -54,8 +57,13 @@ class NotificationManager {
     }
 
     /// Registriert die Alarm-Kategorie mit Schnellaktionen
-    /// ("1 Std. / 24 Std. stumm" direkt aus der Mitteilung).
+    /// (30 Min / 1 Std. / 24 Std. stumm, direkt aus der Mitteilung).
     func registerCategories() {
+        let muteHalfHour = UNNotificationAction(
+            identifier: Self.muteHalfHourAction,
+            title: "\(AlarmMuteDuration.thirtyMinutes.label) stumm",
+            options: []
+        )
         let muteHour = UNNotificationAction(
             identifier: Self.muteOneHourAction,
             title: "\(AlarmMuteDuration.oneHour.label) stumm",
@@ -68,7 +76,7 @@ class NotificationManager {
         )
         let category = UNNotificationCategory(
             identifier: Self.alarmCategory,
-            actions: [muteHour, muteDay],
+            actions: [muteHalfHour, muteHour, muteDay],
             intentIdentifiers: [],
             options: []
         )
@@ -181,6 +189,9 @@ class NotificationManager {
         var parts = ["\(station.waterDisplayName) bei \(station.displayName)", "Aktuell: \(Int(value)) cm"]
         if let threshold = station.alarmThreshold {
             parts.append("(Schwelle: \(Int(threshold)) cm)")
+        }
+        if let rate = station.riseRateCmPerHour, abs(rate) >= 2 {
+            parts.append(rate > 0 ? String(format: "↑ %+.0f cm/h", rate) : String(format: "↓ %.0f cm/h", rate))
         }
         return parts.joined(separator: " · ")
     }

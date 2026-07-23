@@ -1,12 +1,5 @@
-//
-//  TutorialStep.swift
-//  PegelWatch
-//
-//  Created by Felix Schick on 10.04.26.
-//
-
-
 import SwiftUI
+
 // MARK: - Models
 
 private struct TutorialStep: Identifiable {
@@ -18,6 +11,7 @@ private struct TutorialStep: Identifiable {
     let body: String
     let hint: String?
     let illustrationKind: IllustrationKind
+    let action: (() async -> Void)?
 
     enum IllustrationKind {
         case welcome
@@ -25,7 +19,28 @@ private struct TutorialStep: Identifiable {
         case search
         case detail
         case alarm
+        case notification
         case widget
+    }
+
+    init(
+        icon: String,
+        iconColor: Color,
+        badge: String? = nil,
+        title: String,
+        body: String,
+        hint: String? = nil,
+        illustrationKind: IllustrationKind,
+        action: (() async -> Void)? = nil
+    ) {
+        self.icon = icon
+        self.iconColor = iconColor
+        self.badge = badge
+        self.title = title
+        self.body = body
+        self.hint = hint
+        self.illustrationKind = illustrationKind
+        self.action = action
     }
 }
 
@@ -33,10 +48,8 @@ private let tutorialSteps: [TutorialStep] = [
     TutorialStep(
         icon: "water.waves",
         iconColor: .blue,
-        badge: nil,
         title: "Willkommen bei PegelWatch",
         body: "Behalte Wasserstände an deinen Lieblingsgewässern jederzeit im Blick – direkt auf deinem iPhone und als Widget.",
-        hint: nil,
         illustrationKind: .welcome
     ),
     TutorialStep(
@@ -63,7 +76,6 @@ private let tutorialSteps: [TutorialStep] = [
         badge: "Detailansicht",
         title: "Pegelstand & Verlauf",
         body: "Tippe auf eine Station in der Watchlist, um den genauen Pegelstand, einen 7-Tage-Verlauf und alle Metadaten zu sehen.",
-        hint: nil,
         illustrationKind: .detail
     ),
     TutorialStep(
@@ -74,6 +86,16 @@ private let tutorialSteps: [TutorialStep] = [
         body: "In der Detailansicht kannst du eigene Alarme anlegen. Wird ein Schwellenwert überschritten, bekommst du eine Push-Benachrichtigung.",
         hint: "Du kannst mehrere Alarme mit verschiedenen Farben und Namen anlegen – z. B. \"Bootsanleger\" oder \"Keller\".",
         illustrationKind: .alarm
+    ),
+    TutorialStep(
+        icon: "bell.badge.fill",
+        iconColor: .mint,
+        badge: "Berechtigung",
+        title: "Alarme nie verpassen",
+        body: "PegelWatch benötigt die Erlaubnis für Push-Benachrichtigungen, damit du sofort informiert wirst, wenn ein Pegel deinen Schwellenwert überschreitet.",
+        hint: "Du kannst Benachrichtigungen jederzeit in den iOS-Einstellungen verwalten.",
+        illustrationKind: .notification,
+        action: { await NotificationManager.shared.requestPermission() }
     ),
     TutorialStep(
         icon: "square.grid.2x2",
@@ -94,12 +116,12 @@ struct TutorialView: View {
     @State private var currentStep = 0
     @State private var dragOffset: CGFloat = 0
     @State private var isAnimatingIn = false
+    @State private var isPerformingAction = false
 
     private var isLast: Bool { currentStep == tutorialSteps.count - 1 }
 
     var body: some View {
         ZStack {
-            // Background: dezenter, adaptiver Farbverlauf über dem Systemhintergrund
             Color(.systemBackground)
                 .ignoresSafeArea()
 
@@ -107,13 +129,11 @@ struct TutorialView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Skip button top-right
                 skipButton
                     .padding(.top, 12)
                     .padding(.trailing, 20)
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
-                // Step content
                 TabView(selection: $currentStep) {
                     ForEach(Array(tutorialSteps.enumerated()), id: \.offset) { index, step in
                         StepCard(step: step)
@@ -124,9 +144,7 @@ struct TutorialView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.spring(response: 0.45, dampingFraction: 0.82), value: currentStep)
 
-                // Bottom controls
                 VStack(spacing: 20) {
-                    // Dot indicators
                     HStack(spacing: 8) {
                         ForEach(0..<tutorialSteps.count, id: \.self) { i in
                             Capsule()
@@ -138,13 +156,17 @@ struct TutorialView: View {
                         }
                     }
 
-                    // Action button
                     Button(action: advance) {
                         HStack(spacing: 8) {
-                            Text(isLast ? "Los geht's!" : "Weiter")
-                                .fontWeight(.semibold)
-                            Image(systemName: isLast ? "checkmark" : "arrow.right")
-                                .font(.subheadline.weight(.semibold))
+                            if isPerformingAction {
+                                ProgressView()
+                                    .scaleEffect(0.85)
+                            } else {
+                                Text(isLast ? "Los geht's!" : "Weiter")
+                                    .fontWeight(.semibold)
+                                Image(systemName: isLast ? "checkmark" : "arrow.right")
+                                    .font(.subheadline.weight(.semibold))
+                            }
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -153,6 +175,7 @@ struct TutorialView: View {
                     .controlSize(.large)
                     .tint(.blue)
                     .padding(.horizontal, 24)
+                    .disabled(isPerformingAction)
                 }
                 .padding(.bottom, 44)
             }
@@ -187,6 +210,20 @@ struct TutorialView: View {
     // MARK: - Actions
 
     private func advance() {
+        let step = tutorialSteps[currentStep]
+        if let action = step.action {
+            isPerformingAction = true
+            Task {
+                await action()
+                isPerformingAction = false
+                performAdvance()
+            }
+        } else {
+            performAdvance()
+        }
+    }
+
+    private func performAdvance() {
         if isLast {
             onFinish()
         } else {
@@ -206,13 +243,10 @@ private struct StepCard: View {
         VStack(spacing: 28) {
             Spacer(minLength: 8)
 
-            // Illustration
             StepIllustration(kind: step.illustrationKind, color: step.iconColor)
                 .frame(height: 220)
 
-            // Text block
             VStack(spacing: 12) {
-                // Badge
                 if let badge = step.badge {
                     Text(badge.uppercased())
                         .font(.caption2.weight(.bold))
@@ -274,6 +308,7 @@ private struct StepIllustration: View {
         case .search:       SearchIllustration(color: color)
         case .detail:       DetailIllustration(color: color)
         case .alarm:        AlarmIllustration(color: color)
+        case .notification: NotificationIllustration(color: color)
         case .widget:       WidgetIllustration(color: color)
         }
     }
@@ -358,7 +393,6 @@ private struct SearchIllustration: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Fake search bar
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -371,7 +405,6 @@ private struct SearchIllustration: View {
             .padding(.vertical, 12)
             .pegelCard(cornerRadius: 12)
 
-            // Results
             VStack(spacing: 8) {
                 ForEach(["KÖLN", "KOBLENZ", "KREFELD"].prefix(typed.isEmpty ? 3 : 1), id: \.self) { name in
                     HStack {
@@ -395,18 +428,16 @@ private struct SearchIllustration: View {
             }
         }
         .padding(.horizontal, 24)
-        .onAppear {
-            animateTyping()
-        }
+        .onAppear { animateTyping() }
     }
 
     private func animateTyping() {
-        var delay = 0.6
-        for char in target {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            for char in target {
+                try? await Task.sleep(for: .milliseconds(180))
                 typed.append(char)
             }
-            delay += 0.18
         }
     }
 }
@@ -418,7 +449,6 @@ private struct DetailIllustration: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            // Big gauge
             VStack(spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(animate ? "423" : "400")
@@ -443,7 +473,6 @@ private struct DetailIllustration: View {
             .frame(maxWidth: .infinity)
             .pegelCard(cornerRadius: 14)
 
-            // Mini chart bars
             HStack(alignment: .bottom, spacing: 6) {
                 ForEach([0.45, 0.55, 0.5, 0.65, 0.7, 0.6, 0.75], id: \.self) { h in
                     RoundedRectangle(cornerRadius: 4)
@@ -470,17 +499,16 @@ private struct AlarmIllustration: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Bell animation
             Image(systemName: "bell.badge.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(color)
                 .rotationEffect(.degrees(ring ? 18 : -18))
                 .animation(.easeInOut(duration: 0.15).repeatCount(8, autoreverses: true), value: ring)
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { ring = true }
+                .task {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    ring = true
                 }
 
-            // Alarm rows
             ForEach([
                 ("Bootsanleger", "350 cm", Color.yellow),
                 ("Keller",       "500 cm", Color.orange),
@@ -506,6 +534,48 @@ private struct AlarmIllustration: View {
     }
 }
 
+// --- Notification ---
+private struct NotificationIllustration: View {
+    let color: Color
+    @State private var show = false
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "bell.badge.fill")
+                .font(.system(size: 60, weight: .light))
+                .foregroundStyle(color)
+                .symbolEffect(.variableColor.iterative, options: .repeating)
+
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(color.opacity(0.15))
+                    .frame(width: 40, height: 40)
+                    .overlay {
+                        Image(systemName: "water.waves")
+                            .font(.system(size: 18))
+                            .foregroundStyle(color)
+                    }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("⚠️ Pegel-Alarm: KÖLN")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("RHEIN · Aktuell: 650 cm")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(14)
+            .pegelCard(cornerRadius: 14)
+            .offset(y: show ? 0 : 30)
+            .opacity(show ? 1 : 0)
+            .animation(.spring(response: 0.5, dampingFraction: 0.7).delay(0.4), value: show)
+        }
+        .padding(.horizontal, 24)
+        .onAppear { show = true }
+    }
+}
+
 // --- Widget ---
 private struct WidgetIllustration: View {
     let color: Color
@@ -513,7 +583,6 @@ private struct WidgetIllustration: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            // Small widget mock
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: "water.waves")
                     .font(.system(size: 20))
@@ -536,7 +605,6 @@ private struct WidgetIllustration: View {
                     .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulse)
             )
 
-            // Medium widget mock
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Image(systemName: "water.waves")
@@ -575,20 +643,6 @@ private struct WidgetIllustration: View {
         .onAppear { pulse = true }
     }
 }
-
-// MARK: - ContentView Integration Hint
-// In deiner ContentView.swift oder PegelWatchApp.swift:
-//
-// struct ContentView: View {
-//     @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
-//
-//     var body: some View {
-//         TabView { ... }
-//             .sheet(isPresented: .constant(!hasSeenTutorial)) {
-//                 TutorialView(onFinish: { hasSeenTutorial = true })
-//             }
-//     }
-// }
 
 #Preview {
     TutorialView(onFinish: {})

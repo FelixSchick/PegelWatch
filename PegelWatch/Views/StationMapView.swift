@@ -6,13 +6,19 @@ import MapKit
 struct StationMapView: View {
 
     @State private var store = StationStore.shared
+    @State private var catalog = StationCatalog.shared
     @State private var selectedStation: WatchedStation?
     @State private var addCandidate: Station?
-    @State private var allStations: [Station] = []
-    @State private var isLoadingAll = false
     @State private var showUnwatched = false
     @State private var cameraPosition: MapCameraPosition = .automatic
-    @State private var currentSpan: MKCoordinateSpan?
+    @State private var currentRegion: MKCoordinateRegion?
+
+    // Stored so the filter runs off the main thread and doesn't block the map
+    @State private var unwatchedInView: [Station] = []
+    @State private var unwatchedTask: Task<Void, Never>?
+
+    // Guidance: 0 = point to "Alle anzeigen" button, 1 = instruct to zoom & tap, 2 = done
+    @AppStorage("mapGuidanceStep") private var mapGuidanceStep = 0
 
     /// Zoom-Schwelle: erst wenn die sichtbare Region kleiner ist als 2° in
     /// Breitengrad, werden die zusätzlichen (nicht beobachteten) Stationen
@@ -21,24 +27,6 @@ struct StationMapView: View {
 
     private var mappableStations: [WatchedStation] {
         store.watchedStations.filter { $0.latitude != nil && $0.longitude != nil }
-    }
-
-    private var unwatchedInView: [Station] {
-        guard showUnwatched, let span = currentSpan else { return [] }
-        let watchedIDs = Set(store.watchedStations.map(\.id))
-        // Auf das aktuelle Kartenfenster begrenzen — sonst wären Deutschland
-        // + Luxemburg zusammen ~500+ Marker gleichzeitig aktiv.
-        let latRange = span.latitudeDelta
-        let lonRange = span.longitudeDelta
-        return allStations.filter { st in
-            guard !watchedIDs.contains(st.id),
-                  let lat = st.latitude, let lon = st.longitude
-            else { return false }
-            // Rohe Vorfilterung: alle mit gültigen Koordinaten im vernünftigen
-            // Wertebereich — die Map selbst schneidet visuell nochmals zu.
-            return lat > 0 && lon > 0 && latRange < Self.unwatchedZoomThreshold
-                                     && lonRange < Self.unwatchedZoomThreshold * 2
-        }
     }
 
     var body: some View {
@@ -75,13 +63,14 @@ struct StationMapView: View {
             }
             .mapStyle(.standard(elevation: .flat))
             .onMapCameraChange(frequency: .onEnd) { context in
-                currentSpan = context.region.span
+                currentRegion = context.region
+                updateUnwatchedInView()
             }
             .navigationTitle("Karte")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await toggleUnwatched() }
+                        toggleUnwatched()
                     } label: {
                         Label(showUnwatched ? "Nur eigene" : "Alle anzeigen",
                               systemImage: showUnwatched ? "eye.slash" : "plus.magnifyingglass")
@@ -89,15 +78,17 @@ struct StationMapView: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if showUnwatched, let span = currentSpan,
-                   span.latitudeDelta >= Self.unwatchedZoomThreshold {
+                // Suppress zoom hint while the guidance card already covers this instruction
+                if showUnwatched, let span = currentRegion?.span,
+                   span.latitudeDelta >= Self.unwatchedZoomThreshold,
+                   mapGuidanceStep != 1 {
                     Text("Zoom hinein, um weitere Stationen zu sehen.")
                         .font(.footnote)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(.thinMaterial, in: Capsule())
                         .padding(.bottom, 12)
                 }
-                if isLoadingAll {
+                if catalog.isLoading {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("Lade Stationen…").font(.footnote)
@@ -130,23 +121,119 @@ struct StationMapView: View {
                 AddStationSheet(station: candidate) {
                     store.add(WatchedStation(from: candidate))
                     addCandidate = nil
+                    // Step 1 → 2: user successfully added a station from the map
+                    if mapGuidanceStep == 1 {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                            mapGuidanceStep = 2
+                        }
+                    }
                 }
             }
+            // Step 0 → 1: user tapped "Alle anzeigen"
+            .onChange(of: showUnwatched) {
+                if showUnwatched && mapGuidanceStep == 0 {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        mapGuidanceStep = 1
+                    }
+                }
+                updateUnwatchedInView()
+            }
+            // When catalog finishes loading, re-evaluate what's in view
+            .onChange(of: catalog.stations.count) {
+                updateUnwatchedInView()
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if mapGuidanceStep < 2 {
+                    mapGuidanceCard
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: mapGuidanceStep)
+        }
+    }
+
+    // MARK: - Guidance Card
+
+    @ViewBuilder
+    private var mapGuidanceCard: some View {
+        switch mapGuidanceStep {
+        case 0:
+            GuidanceCard(
+                icon: "plus.magnifyingglass",
+                iconColor: .blue,
+                message: "Tippe oben rechts auf \"Alle anzeigen\", um alle 4.000 Messstationen auf der Karte zu sehen.",
+                onDismiss: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        mapGuidanceStep = 2
+                    }
+                }
+            )
+        case 1:
+            GuidanceCard(
+                icon: "mappin.and.ellipse",
+                iconColor: .teal,
+                message: "Zoome in die Karte und tippe auf einen kleinen Punkt, um eine Station zur Watchlist hinzuzufügen.",
+                onDismiss: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        mapGuidanceStep = 2
+                    }
+                }
+            )
+        default:
+            EmptyView()
         }
     }
 
     // MARK: - Actions
 
-    private func toggleUnwatched() async {
+    private func toggleUnwatched() {
         showUnwatched.toggle()
-        guard showUnwatched, allStations.isEmpty else { return }
-        isLoadingAll = true
-        defer { isLoadingAll = false }
-        async let germanFetch = PegelOnlineAPI.shared.fetchAllStations()
-        async let luxFetch = HeichwaasserAPI.shared.fetchAllStations()
-        var result: [Station] = (try? await germanFetch) ?? []
-        if let lux = try? await luxFetch { result.append(contentsOf: lux) }
-        allStations = result
+        if showUnwatched {
+            catalog.loadIfNeeded()
+        }
+    }
+
+    /// Recomputes the visible unwatched station list off the main thread.
+    /// Cancels any in-flight computation so rapid camera changes don't pile up.
+    private func updateUnwatchedInView() {
+        unwatchedTask?.cancel()
+
+        guard showUnwatched else {
+            unwatchedInView = []
+            return
+        }
+        guard let region = currentRegion else { return }
+
+        let span = region.span
+        guard span.latitudeDelta < Self.unwatchedZoomThreshold,
+              span.longitudeDelta < Self.unwatchedZoomThreshold * 2 else {
+            unwatchedInView = []
+            return
+        }
+
+        let latPad = span.latitudeDelta  * 0.15
+        let lonPad = span.longitudeDelta * 0.15
+        let minLat = region.center.latitude  - span.latitudeDelta  / 2 - latPad
+        let maxLat = region.center.latitude  + span.latitudeDelta  / 2 + latPad
+        let minLon = region.center.longitude - span.longitudeDelta / 2 - lonPad
+        let maxLon = region.center.longitude + span.longitudeDelta / 2 + lonPad
+
+        let watchedIDs = Set(store.watchedStations.map(\.id))
+        let stations = catalog.stations
+
+        unwatchedTask = Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                stations.filter { st in
+                    guard !watchedIDs.contains(st.id),
+                          let lat = st.latitude, let lon = st.longitude
+                    else { return false }
+                    return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            unwatchedInView = result
+        }
     }
 
     // MARK: - Marker
