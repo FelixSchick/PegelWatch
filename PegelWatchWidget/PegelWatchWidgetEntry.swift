@@ -137,7 +137,8 @@ struct PegelWatchWidgetBundle: WidgetBundle {
         PegelWatchLargeWidget()     // large, always shows full watchlist
         PegelWatchLiveActivityWidget()
         PegelWatchCriticalLiveActivityWidget()
-        PegelWatchOpenControl()     // Control-Center-Baustein
+        PegelWatchOpenControl()     // Control-Center-Baustein "Öffnen"
+        PegelWatchMuteControl()     // Control-Center-Baustein "Alle stumm"
     }
 }
 
@@ -338,22 +339,26 @@ struct MediumWidgetView: View {
                 }
 
                 Spacer(minLength: 12)
+                
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    if entry.primaryHistory.count >= 2 {
-                        SparklineView(
-                            history: entry.primaryHistory,
-                            color: station.alarmLevel == .normal ? .blue : station.alarmLevel.color,
-                            threshold: station.alarmThreshold
-                        )
-                        .frame(width: 120, height: 28)
-                    }
                     // Schwelle immer beziffern — die Sparkline zeichnet die
                     // Linie nur, wenn sie nah genug am Verlauf liegt.
                     if let threshold = station.alarmThreshold {
                         Text("Schwelle \(Int(threshold)) cm")
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(station.alarmLevel.color)
+                        
+                        
+                    if entry.primaryHistory.count >= 2 {
+                        SparklineView(
+                            history: entry.primaryHistory,
+                            color: station.alarmLevel == .normal ? .blue : station.alarmLevel.color,
+                            threshold: station.alarmThreshold
+                        )
+                        .frame(width: 120, height: 12)
+                    }
+                    
                     }
 
                     Spacer(minLength: 0)
@@ -367,6 +372,12 @@ struct MediumWidgetView: View {
                             .font(.caption2)
                             .foregroundStyle(station.isStale ? Color.orange : Color.secondary)
                         }
+                        Button(intent: MuteAllAlarmsWidgetIntent()) {
+                            Image(systemName: station.isAlarmMuted ? "bell.slash.fill" : "bell.slash")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(station.isAlarmMuted ? .orange : .secondary)
+                        }
+                        .buttonStyle(.plain)
                         Button(intent: RefreshWidgetIntent()) {
                             Image(systemName: "arrow.clockwise")
                                 .font(.caption2.weight(.semibold))
@@ -437,7 +448,7 @@ private struct SparklineView: View {
             ForEach(smoothed, id: \.timestamp) { point in
                 AreaMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
                     .foregroundStyle(.linearGradient(
-                        colors: [color.opacity(0.55), color.opacity(0.05)],
+                        colors: [color.opacity(0.55), color.opacity(0.0)],
                         startPoint: .top, endPoint: .bottom
                     ))
                     .interpolationMethod(.catmullRom)

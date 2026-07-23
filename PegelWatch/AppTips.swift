@@ -18,3 +18,15 @@ struct AlarmCreationTip: Tip {
     var message: Text? { Text("Tippe auf \"+\", um eine eigene Alarmschwelle zu setzen – du wirst benachrichtigt, sobald der Pegel sie überschreitet.") }
     var image: Image? { Image(systemName: "bell.badge") }
 }
+
+struct GroupCreationTip: Tip {
+    @Parameter static var hasGroupedStation: Bool = false
+
+    var rules: [Rule] {
+        #Rule(Self.$hasGroupedStation) { $0 == false }
+    }
+    
+    var title: Text { Text("Gruppe erstellen") }
+    var message: Text? { Text("Tippe auf \(Image(systemName: "ellipsis")) -> Gruppen, um eine neue Gruppe zu erstellen, die dir hilft, die Pegel besser zu organisieren.") }
+    var image: Image? { Image(systemName: "folder.circle") }
+}

@@ -19,6 +19,7 @@ struct WatchedStation: Identifiable, Codable, Hashable {
 
     var lastValue: Double?
     var previousValue: Double?
+    var previousUpdated: Date?
     var lastValueUnit: String = "cm"
     var lastUpdated: Date?
 
@@ -62,6 +63,19 @@ struct WatchedStation: Identifiable, Codable, Hashable {
     var trend: Double? {
         guard let current = lastValue, let previous = previousValue else { return nil }
         return current - previous
+    }
+
+    /// Steigungsrate in cm/h, berechnet aus zwei aufeinanderfolgenden Messwerten.
+    /// Nil wenn weniger als zwei Werte oder der Zeitabstand ≤ 0 ist.
+    var riseRateCmPerHour: Double? {
+        guard let current = lastValue,
+              let previous = previousValue,
+              let now = lastUpdated,
+              let then = previousUpdated,
+              then < now else { return nil }
+        let hours = now.timeIntervalSince(then) / 3600.0
+        guard hours > 0 else { return nil }
+        return (current - previous) / hours
     }
 
     var sortedCustomAlarms: [CustomAlarm] {
@@ -129,6 +143,15 @@ extension WatchedStation {
         s.lastValue = 182.0
         s.alarmThreshold = 250.0
         s.lastUpdated = Date()
+        s.enableCustomThreshold = true
+        return s
+    }()
+    
+    static let previewOldData: WatchedStation = {
+        var s = WatchedStation(from: Station.preview)
+        s.lastValue = 182.0
+        s.alarmThreshold = 250.0
+        s.lastUpdated = Date().addingTimeInterval(-100*60*60)
         s.enableCustomThreshold = true
         return s
     }()

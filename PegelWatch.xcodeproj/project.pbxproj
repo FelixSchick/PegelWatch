@@ -44,6 +44,16 @@
 			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		20F9AC792FF936E1002FB4A8 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -114,6 +124,11 @@
 			path = PegelWatchWidget;
 			sourceTree = "<group>";
 		};
+		20F9AC6C2FF936E1002FB4A8 /* PegelWatchWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "PegelWatchWatch Watch App";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +157,7 @@
 				207048C02F7A8F93006B90A3 /* PegelWatchWidgetExtension.entitlements */,
 				20295CCC2F72DB6A00BC7C05 /* PegelWatch */,
 				207048CF2F7A91B5006B90A3 /* PegelWatchWidget */,
+				20F9AC6C2FF936E1002FB4A8 /* PegelWatchWatch Watch App */,
 				20295CFE2F732B1000BC7C05 /* Frameworks */,
 				20295CCB2F72DB6A00BC7C05 /* Products */,
 			);
@@ -179,6 +195,7 @@
 				20295CC82F72DB6A00BC7C05 /* Resources */,
 				20295D112F732B1000BC7C05 /* Embed Foundation Extensions */,
 				20295D262F732D2C00BC7C05 /* Embed ExtensionKit Extensions */,
+				20F9AC792FF936E1002FB4A8 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
@@ -224,7 +241,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2640;
+				LastSwiftUpdateCheck = 2650;
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					20295CC92F72DB6A00BC7C05 = {
@@ -452,7 +469,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = de.felixschick.PegelWatch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -492,7 +509,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = de.felixschick.PegelWatch;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -524,7 +541,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = de.felixschick.PegelWatch.PegelWatchWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -556,7 +573,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1;
+				MARKETING_VERSION = 3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = de.felixschick.PegelWatch.PegelWatchWidget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

@@ -178,3 +178,7 @@ struct GroupEditorView: View {
         }
     }
 }
+
+#Preview {
+    GroupManagerSheet();
+}

@@ -69,6 +69,14 @@ struct RiverStationView: View {
             }
         }
 
+        // The one-directional enforcement loop can push values outside [0, height],
+        // causing Canvas to clip the path. Re-fit to the original [4%, 92%] band.
+        if let minY = ys.min(), let maxY = ys.max(), maxY > minY {
+            let lo: CGFloat = size.height * 0.04
+            let hi: CGFloat = size.height * 0.92
+            ys = ys.map { lo + ($0 - minY) / (maxY - minY) * (hi - lo) }
+        }
+
         return stations.enumerated().map { idx, station in
             let t = stations.count > 1
                 ? CGFloat(idx) / CGFloat(stations.count - 1)

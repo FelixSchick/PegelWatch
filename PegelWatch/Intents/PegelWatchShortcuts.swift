@@ -135,6 +135,87 @@ private struct WaterLevelSnippetView: View {
     }
 }
 
+// MARK: - Refresh All Intent
+
+/// Aktualisiert alle beobachteten Stationen — nützlich als Siri-Shortcut
+/// oder als Automatisierungs-Trigger (z. B. bei Ankunft zu Hause).
+struct RefreshAllStationsIntent: AppIntent {
+    static let title: LocalizedStringResource = "Alle Pegel aktualisieren"
+    static let description = IntentDescription(
+        "Lädt für alle beobachteten Stationen die aktuellen Wasserstände neu."
+    )
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let store = StationStore.shared
+        await store.refreshAll()
+
+        let count = store.watchedStations.count
+        let alarming = store.watchedStations.filter { $0.alarmLevel.isAlarming }.count
+
+        let dialog: String
+        if count == 0 {
+            dialog = "Du beobachtest aktuell keine Stationen."
+        } else if alarming == 0 {
+            dialog = "\(count) Station\(count == 1 ? "" : "en") aktualisiert. Alle Werte sind im Normbereich."
+        } else {
+            dialog = "\(count) Station\(count == 1 ? "" : "en") aktualisiert. \(alarming) Station\(alarming == 1 ? "" : "en") überschreitet den Alarmwert."
+        }
+
+        return .result(dialog: IntentDialog(stringLiteral: dialog))
+    }
+}
+
+// MARK: - Mute All Intent
+
+struct MuteAllAlarmsIntent: AppIntent {
+    static let title: LocalizedStringResource = "Alle Alarme stumm schalten"
+    static let description = IntentDescription(
+        "Schaltet die Alarme aller beobachteten Stationen vorübergehend stumm."
+    )
+
+    @Parameter(title: "Dauer", default: .oneHour)
+    var duration: MuteDurationAppEnum
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Alle Alarme für \(\.$duration) stumm")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let store = StationStore.shared
+        let seconds = duration.underlying.seconds
+        for station in store.watchedStations {
+            store.muteAlarms(for: station.id, duration: seconds)
+        }
+        let count = store.watchedStations.count
+        return .result(
+            dialog: IntentDialog(stringLiteral: "\(count) Station\(count == 1 ? "" : "en") für \(duration.underlying.label) stumm geschaltet.")
+        )
+    }
+}
+
+enum MuteDurationAppEnum: String, AppEnum {
+    case oneHour
+    case sixHours
+    case oneDay
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Stumm-Dauer"
+    static let caseDisplayRepresentations: [MuteDurationAppEnum: DisplayRepresentation] = [
+        .oneHour:  "1 Stunde",
+        .sixHours: "6 Stunden",
+        .oneDay:   "24 Stunden"
+    ]
+
+    var underlying: AlarmMuteDuration {
+        switch self {
+        case .oneHour:  return .oneHour
+        case .sixHours: return .sixHours
+        case .oneDay:   return .oneDay
+        }
+    }
+}
+
 // MARK: - App Shortcuts
 
 struct PegelWatchAppShortcuts: AppShortcutsProvider {
@@ -148,6 +229,24 @@ struct PegelWatchAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Pegelstand",
             systemImageName: "water.waves"
+        )
+        AppShortcut(
+            intent: RefreshAllStationsIntent(),
+            phrases: [
+                "Alle Pegel in \(.applicationName) aktualisieren",
+                "Aktualisiere \(.applicationName)"
+            ],
+            shortTitle: "Alle aktualisieren",
+            systemImageName: "arrow.clockwise"
+        )
+        AppShortcut(
+            intent: MuteAllAlarmsIntent(),
+            phrases: [
+                "Alle Alarme in \(.applicationName) stumm schalten",
+                "\(.applicationName) stumm"
+            ],
+            shortTitle: "Alle stumm",
+            systemImageName: "bell.slash"
         )
     }
 }

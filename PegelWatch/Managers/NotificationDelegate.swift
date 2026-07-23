@@ -22,6 +22,10 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             .userInfo[NotificationManager.stationIDKey] as? String else { return }
 
         switch response.actionIdentifier {
+        case NotificationManager.muteHalfHourAction:
+            await MainActor.run {
+                StationStore.shared.muteAlarms(for: stationID, duration: AlarmMuteDuration.thirtyMinutes.seconds)
+            }
         case NotificationManager.muteOneHourAction:
             await MainActor.run {
                 StationStore.shared.muteAlarms(for: stationID, duration: AlarmMuteDuration.oneHour.seconds)

@@ -11,7 +11,7 @@ import Foundation
 enum LevelForecast {
 
     /// Result of a regression-based short-term forecast.
-    struct Result: Equatable {
+    struct Result {
         /// Estimated slope in cm/hour (positive = rising).
         let slopePerHour: Double
         /// Coefficient of determination (0…1) — how well the line fits.

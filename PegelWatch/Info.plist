@@ -11,5 +11,7 @@
 		<string>fetch</string>
 		<string>processing</string>
 	</array>
+	<key>NSCriticalAlertUsageDescription</key>
+	<string>PegelWatch warnt dich sofort, wenn ein Pegelstand deine Hochwasserschwelle überschreitet – auch wenn dein Gerät stummgeschaltet ist oder ein Fokusmodus aktiv ist. Diese zuverlässige Alarmierung ist für Anwohner, Bootfahrer und alle anderen gedacht, die bei einer Hochwassergefahr unmittelbar handeln müssen.</string>
 </dict>
 </plist>

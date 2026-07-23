@@ -41,11 +41,12 @@ class NotificationManager {
             // .criticalAlert ist ohne das Apple-Entitlement wirkungslos (wird
             // schlicht nicht gewährt), aber sobald das Entitlement da ist,
             // greifen Lautstärkeregler & Stummmodus-Durchbruch automatisch.
-            let granted = try await UNUserNotificationCenter.current()
+            let _ = try await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound, .badge, .criticalAlert])
-            print("Notification permission granted: \(granted)")
         } catch {
+            #if DEBUG
             print("Notification permission error: \(error)")
+            #endif
         }
     }
 
@@ -108,8 +109,12 @@ class NotificationManager {
     func sendCustomAlarmNotification(for station: WatchedStation, alarm: CustomAlarm, currentValue: Double) {
         let content = UNMutableNotificationContent()
         content.title = "⚠️ \(alarm.name)"
-        content.body  = "\(station.displayName) (\(station.waterDisplayName)): " +
-                        "\(Int(currentValue)) cm – Schwelle \(Int(alarm.threshold)) cm überschritten."
+        var customBody = "\(station.displayName) (\(station.waterDisplayName)): " +
+                         "\(Int(currentValue)) cm – Schwelle \(Int(alarm.threshold)) cm überschritten."
+        if let rate = station.riseRateCmPerHour, abs(rate) >= 2 {
+            customBody += rate > 0 ? String(format: " · ↑ %+.0f cm/h", rate) : String(format: " · ↓ %.0f cm/h", rate)
+        }
+        content.body = customBody
         content.categoryIdentifier = Self.alarmCategory
         content.userInfo = [Self.stationIDKey: station.id]
         content.interruptionLevel = .timeSensitive

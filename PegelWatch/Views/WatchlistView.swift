@@ -12,6 +12,7 @@ struct WatchlistView: View {
     @State private var showingSavedSnapshots = false
     @State private var showingGroupManager = false
     @State private var widgetTip = WidgetTip()
+    @State private var groupTip = GroupCreationTip()
 
     private var displayedStations: [WatchedStation] {
         applySorting(store.watchedStations)
@@ -31,13 +32,25 @@ struct WatchlistView: View {
             .task {
                 await store.refreshAll()
             }
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(600))
+                    let hasStale = store.watchedStations.contains(where: { $0.isStale })
+                    let canRefresh = store.lastRefreshed.map { Date().timeIntervalSince($0) > 540 } ?? true
+                    if hasStale && canRefresh { await store.refreshAll() }
+                }
+            }
             .onAppear {
                 openPendingStation()
                 WidgetTip.hasWatchedStation = !store.watchedStations.isEmpty
+                GroupCreationTip.hasGroupedStation = !store.groups.isEmpty
             }
             .onChange(of: router.pendingStationID) { openPendingStation() }
             .onChange(of: store.watchedStations.count) {
                 if !store.watchedStations.isEmpty { WidgetTip.hasWatchedStation = true }
+            }
+            .onChange(of: store.groups) {
+                GroupCreationTip.hasGroupedStation = !store.groups.isEmpty
             }
             .refreshable {
                 await store.refreshAll()
@@ -51,6 +64,13 @@ struct WatchlistView: View {
                 TipView(widgetTip)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
+                
+                
+                TipView(groupTip)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                
+
             }
             .sheet(isPresented: $showingSnapshotBuilder) {
                 SectorSnapshotView(allStations: store.watchedStations)
@@ -231,7 +251,8 @@ struct WatchlistView: View {
                         )
                     }
                 } label: {
-                    Image(systemName: "list.bullet.clipboard")
+                    
+                    Image(systemName: "ellipsis")
                 }
                 .help("Lageübersichten & Gruppen")
             }

@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var lastTapTime = Date()
     
     @State private var showDevView = false
+    @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
 
     private let refreshIntervalOptions = [5, 10, 15, 30, 60]
 
@@ -23,6 +24,7 @@ struct SettingsView: View {
                 notificationSection
                 alarmSoundSection
                 alarmVolumeSection
+                onboardingSection
                 aboutSection
                 dangerSection
             }
@@ -132,7 +134,7 @@ struct SettingsView: View {
             .accessibilityValue("\(Int(soundSettings.criticalVolume * 100)) Prozent")
 
             Toggle(isOn: $soundSettings.useCriticalAlerts) {
-                Label("Kritische Warnung", systemImage: "exclamationmark.triangle")
+                Label("Stummmodus & Fokus durchbrechen", systemImage: "exclamationmark.triangle.fill")
             }
 
             Button {
@@ -152,7 +154,17 @@ struct SettingsView: View {
         } header: {
             Label("Lautstärke & Dringlichkeit", systemImage: "speaker.wave.3")
         } footer: {
-            Text("Kritische Warnungen durchbrechen Stummmodus und Fokus und nutzen die eingestellte Lautstärke. Ohne kritische Warnung folgen Alarme der Systemlautstärke und werden als zeitkritisch zugestellt.")
+            Text("Wenn aktiviert, ertönt der Alarm auch bei Stummmodus und Fokusmodi – unabhängig von der Systemlautstärke. Beim ersten Aktivieren fragt iOS separat nach der Berechtigung für kritische Warnungen. Empfohlen für alle, die bei Hochwassergefahr sofort reagieren müssen.")
+        }
+    }
+
+    private var onboardingSection: some View {
+        Section {
+            Button {
+                hasSeenTutorial = false
+            } label: {
+                Label("Einführung erneut anzeigen", systemImage: "graduationcap")
+            }
         }
     }
 

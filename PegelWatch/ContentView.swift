@@ -39,7 +39,12 @@ struct ContentView: View {
                 .tag(AppTab.settings)
         }
         .sheet(isPresented: .constant(!hasSeenTutorial)) {
-            TutorialView(onFinish: { hasSeenTutorial = true })
+            TutorialView(onFinish: {
+                hasSeenTutorial = true
+                if store.watchedStations.isEmpty {
+                    router.selectedTab = .search
+                }
+            })
         }
         // Warn-Haptik, sobald neue Alarme dazukommen
         .sensoryFeedback(trigger: activeAlarmCount) { oldCount, newCount in

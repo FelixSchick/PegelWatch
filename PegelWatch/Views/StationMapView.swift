@@ -188,10 +188,31 @@ struct StationMapView: View {
     // MARK: - Actions
 
     private func toggleUnwatched() {
-        showUnwatched.toggle()
-        if showUnwatched {
+        if !showUnwatched {
+            // Freeze camera before new annotations appear — MapCameraPosition.automatic
+            // would re-fit the viewport to cover all of Germany when thousands of pins
+            // are added, causing a dramatic zoom-out / zoom-in glitch.
+            if let region = currentRegion {
+                cameraPosition = .region(region)
+            } else {
+                // Camera hasn't fired onMapCameraChange yet; derive region from watched stations
+                let lats = mappableStations.compactMap(\.latitude)
+                let lons = mappableStations.compactMap(\.longitude)
+                if let minLat = lats.min(), let maxLat = lats.max(),
+                   let minLon = lons.min(), let maxLon = lons.max() {
+                    let pad = max(2.0, max(maxLat - minLat, maxLon - minLon))
+                    cameraPosition = .region(MKCoordinateRegion(
+                        center: CLLocationCoordinate2D(
+                            latitude: (minLat + maxLat) / 2,
+                            longitude: (minLon + maxLon) / 2
+                        ),
+                        span: MKCoordinateSpan(latitudeDelta: pad, longitudeDelta: pad)
+                    ))
+                }
+            }
             catalog.loadIfNeeded()
         }
+        showUnwatched.toggle()
     }
 
     /// Recomputes the visible unwatched station list off the main thread.
@@ -225,7 +246,7 @@ struct StationMapView: View {
         unwatchedTask = Task {
             let result = await Task.detached(priority: .userInitiated) {
                 stations.filter { st in
-                    guard !watchedIDs.contains(st.id),
+                    guard !watchedIDs.contains(st.uuid),
                           let lat = st.latitude, let lon = st.longitude
                     else { return false }
                     return lat >= minLat && lat <= maxLat && lon >= minLon && lon <= maxLon

@@ -6,11 +6,15 @@ final class APNSManager {
     static let shared = APNSManager()
     private init() {}
 
-    // Replace with your relay endpoint once implemented.
-    // Your server receives this request and calls Novu server-side:
-    //   POST /v1/subscribers          — ensure subscriber exists
-    //   PUT  /v1/subscribers/{id}/credentials — register the APNS token
-    private let relayURL = "https://novu-api.felixschick.de/api/register-device"
+    // Vapor relay service (pegelwatch-relay.felixschick.de) — not Novu directly.
+    // That service holds NOVU_SECRET_KEY + APP_TOKEN server-side and makes the
+    // two Novu calls: POST /v1/subscribers + PUT /v1/subscribers/{id}/credentials.
+    private let relayURL = "https://pegelwatch-relay.felixschick.de/api/register-device"
+
+    // Must match the APP_TOKEN environment variable set on the relay service.
+    // Low-privilege secret: if leaked, allows registering bogus device tokens only —
+    // cannot trigger notifications or read subscriber data.
+    private let appToken = "bb633c8b12d69b3af52b8ad3f92aced6c5a93e24f38f036a293f08f8e2d1ac93"
 
     // MARK: - Subscriber ID
 
@@ -31,7 +35,9 @@ final class APNSManager {
         let lastTokenKey = "apns.lastRegisteredToken"
         guard UserDefaults.standard.string(forKey: lastTokenKey) != token else { return }
 
+        #if DEBUG
         print("[APNS] Registering new device token with backend")
+        #endif
         if await registerWithBackend(token: token) {
             UserDefaults.standard.set(token, forKey: lastTokenKey)
         }
@@ -52,6 +58,7 @@ final class APNSManager {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(appToken, forHTTPHeaderField: "X-App-Token")
         request.httpBody = try? JSONEncoder().encode(
             RegisterBody(subscriberId: subscriberId, deviceToken: token)
         )
@@ -59,10 +66,14 @@ final class APNSManager {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            #if DEBUG
             print("[APNS] Token registration HTTP \(status)")
+            #endif
             return (200..<300).contains(status)
         } catch {
+            #if DEBUG
             print("[APNS] Token registration failed: \(error)")
+            #endif
             return false
         }
     }

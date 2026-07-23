@@ -212,7 +212,7 @@ struct StationSearchView: View {
         let region = selectedRegion
         let query = debouncedSearch.uppercased()
         // Watched rivers surface first — avoids needing to search for familiar waters
-        let watchedWaters = Set(store.watchedStations.map { $0.water.shortname })
+        let watchedWaters = Set(store.watchedStations.map { $0.waterShortname })
 
         filterTask = Task {
             let result = await Task.detached(priority: .userInitiated) {

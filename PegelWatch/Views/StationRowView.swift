@@ -44,7 +44,9 @@ struct StationRowView: View {
         } else if let value = station.lastValue {
             parts.append("\(Int(value)) Zentimeter")
             parts.append(station.alarmLevel.label)
-            if let trend = station.trend, abs(trend) > 0.5 {
+            if let rate = station.riseRateCmPerHour, abs(rate) >= 1 {
+                parts.append(String(format: "%+.0f Zentimeter pro Stunde", rate))
+            } else if let trend = station.trend, abs(trend) > 0.5 {
                 parts.append(trend > 0 ? "steigend" : "fallend")
             }
         }
@@ -119,10 +121,22 @@ struct StationRowView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if let rate = station.riseRateCmPerHour, abs(rate) >= 1 {
+                    Text(String(format: "%+.0f cm/h", rate))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(rate > 0 ? Color.red.opacity(0.75) : Color.green.opacity(0.75))
+                }
+
                 if let updated = station.lastUpdated {
-                    Text(updated, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(station.isStale ? .orange : .accentColor)
+                    Group {
+                        if station.isStale {
+                            Text("Veraltet · ") + Text(updated, style: .relative)
+                        } else {
+                            Text(updated, style: .relative)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(station.isStale ? .orange : .accentColor)
                 }
             } else {
                 ProgressView()
