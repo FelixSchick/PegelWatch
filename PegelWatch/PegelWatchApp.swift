@@ -2,19 +2,30 @@ import SwiftUI
 import BackgroundTasks
 import UserNotifications
 import WidgetKit
+import UIKit
+import TipKit
 
 @main
 struct PegelWatchApp: App {
-    
+
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     init() {
         registerBackgroundTasks()
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        NotificationManager.shared.registerCategories()
+        #if DEBUG
+        try? Tips.configure([.displayFrequency(.immediate)])
+        #else
+        try? Tips.configure()
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .task {
-                    await NotificationManager.shared.requestPermission()
+                    UIApplication.shared.registerForRemoteNotifications()
                     scheduleBackgroundRefresh()
                 }
         }
@@ -37,38 +48,6 @@ struct PegelWatchApp: App {
 
         let operation = Task { @MainActor in
             await StationStore.shared.refreshAll()
-            
-            
-            /*
-            let store = StationStore.shared
-            let ids = store.watchedStations.map { $0.id }
-            guard !ids.isEmpty else {
-                task.setTaskCompleted(success: true)
-                return
-            }
-
-            let levels = await PegelOnlineAPI.shared.fetchLevels(for: ids)
-
-            for (id, value) in levels {
-                store.updateLevel(id: id, value: value)
-
-                guard let station = store.watchedStations.first(where: { $0.id == id }) else { continue }
-
-                // ✅ 1. Update Live Activity
-                await LiveActivityManager.shared.update(station: station)
-
-                
-                // ✅ 2. Send notification if threshold crossed
-                if let threshold = station.alarmThreshold, value >= threshold {
-                    NotificationManager.shared.sendAlarmNotification(for: station, currentValue: value)
-                }
-            }
-
-            // ✅ 3. Tell WidgetKit to reload
-            WidgetCenter.shared.reloadAllTimelines()
-
-            */
-            
             task.setTaskCompleted(success: true)
         }
 
@@ -82,5 +61,26 @@ struct PegelWatchApp: App {
         let request = BGAppRefreshTaskRequest(identifier: "de.felixschick.pegelwatch.refresh")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
+    }
+}
+
+// MARK: - AppDelegate
+
+final class AppDelegate: NSObject, UIApplicationDelegate {
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        Task { await APNSManager.shared.handleDeviceToken(deviceToken) }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        #if DEBUG
+        print("[APNS] Failed to register for remote notifications: \(error)")
+        #endif
     }
 }

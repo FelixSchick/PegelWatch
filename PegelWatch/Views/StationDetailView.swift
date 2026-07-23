@@ -1,5 +1,7 @@
 import SwiftUI
 import Charts
+import Accessibility
+import TipKit
 
 struct StationDetailView: View {
 
@@ -22,10 +24,15 @@ struct StationDetailView: View {
     @State private var isLoadingHistory = false
     @State private var historyError: String?
 
+    // Charakteristische Kennwerte (MNW/MHW) — leer bei Fehler oder Luxemburg-Stationen
+    @State private var characteristicValues: [String: Double] = [:]
+
     @State private var showHistory = false
     @State private var showAddAlarm = false
     @State private var alarmToEdit: CustomAlarm?
     @State private var glowPulse = false
+    @State private var alarmCreationTip = AlarmCreationTip()
+    @AppStorage("thresholdGuidanceDismissed") private var thresholdGuidanceDismissed = false
 
     private var liveStation: WatchedStation {
         store.watchedStations.first { $0.id == station.id } ?? station
@@ -36,8 +43,14 @@ struct StationDetailView: View {
             VStack(spacing: 20) {
                 if liveStation.noDataAvailable {
                     noDataBanner
+                } else if liveStation.isStale && liveStation.lastValue != nil {
+                    staleBanner
                 }
                 levelGauge
+                if !thresholdGuidanceDismissed && liveStation.alarmThreshold == nil
+                        && !liveStation.noDataAvailable && liveStation.lastValue != nil {
+                    thresholdGuidanceCard
+                }
                 historyChart
                 metaInfo
                 alarmSection
@@ -46,7 +59,7 @@ struct StationDetailView: View {
             }
             .padding()
         }
-        .navigationTitle(station.shortname)
+        .navigationTitle(station.displayShortname)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -62,6 +75,10 @@ struct StationDetailView: View {
             }
         }
         .task { await loadHistory() }
+        // Spürbares Feedback, wenn sich die Alarmstufe der Station ändert
+        .sensoryFeedback(trigger: liveStation.alarmLevel) { _, newLevel in
+            newLevel.isAlarming ? .warning : .success
+        }
         .sheet(isPresented: $showThresholdEditor) { thresholdSheet }
         .sheet(isPresented: $showCustomThresholdEditor) { customThresholdSheet }
         .sheet(isPresented: $showHistory) { AlarmHistoryView(station: liveStation) }
@@ -86,11 +103,64 @@ struct StationDetailView: View {
             Spacer()
         }
         .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(.gray.opacity(0.25), lineWidth: 1)
+        .pegelCard(tint: .gray.opacity(0.15))
+    }
+
+    // MARK: - Stale Banner
+
+    private var staleBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock.badge.exclamationmark")
+                .font(.title2)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Daten veraltet")
+                    .font(.subheadline.bold())
+                if let updated = liveStation.lastUpdated {
+                    
+                    Text("Letzter Messwert vom \(updated.formatted()). Der Sensor meldet sich möglicherweise nicht.", )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer()
+            Button {
+                Task { await store.refreshAll() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.glass)
+            .disabled(store.isRefreshing)
+        }
+        .padding()
+        .pegelCard(tint: .orange.opacity(0.08))
+    }
+
+    // MARK: - Threshold Guidance
+
+    private var thresholdGuidanceCard: some View {
+        GuidanceCard(
+            icon: "ruler",
+            iconColor: .orange,
+            message: "Setze eine Alarmschwelle, damit du bei erhöhtem Pegel benachrichtigt wirst.",
+            onDismiss: { thresholdGuidanceDismissed = true }
         )
+    }
+
+    // MARK: - Level Context
+
+    private func levelContextLabel(value: Double, mnw: Double, mhw: Double) -> String {
+        guard mhw > mnw else { return "" }
+        if value < mnw { return "Unter MNW" }
+        if value > mhw { return "Über MHW" }
+        let fraction = (value - mnw) / (mhw - mnw)
+        switch fraction {
+        case ..<0.25: return "Niedrigwasser"
+        case 0.25..<0.5: return "Unter Mittelwert"
+        case 0.5..<0.75: return "Über Mittelwert"
+        default: return "Erhöhter Pegel"
+        }
     }
 
     // MARK: - Level Gauge
@@ -101,11 +171,15 @@ struct StationDetailView: View {
                 if let value = liveStation.lastValue {
                     Text("\(Int(value))")
                         .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
                         .foregroundStyle(liveStation.alarmLevel.color)
                         .contentTransition(.numericText())
                 } else {
                     Text("N/A")
                         .font(.system(size: 56, weight: .bold, design: .rounded))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 2) {
@@ -121,6 +195,13 @@ struct StationDetailView: View {
                 }
                 .padding(.bottom, 4)
             }
+            // VoiceOver: Zahl, Einheit und Status als ein Element vorlesen
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                liveStation.lastValue.map {
+                    "Aktueller Pegelstand \(Int($0)) Zentimeter, Status \(liveStation.alarmLevel.label)"
+                } ?? "Keine Daten"
+            )
 
             HStack(spacing: 12) {
                 Label(liveStation.alarmLevel.label, systemImage: liveStation.alarmLevel.systemImage)
@@ -140,6 +221,16 @@ struct StationDetailView: View {
                 }
             }
 
+            if let rate = liveStation.riseRateCmPerHour, abs(rate) >= 0.5 {
+                Label(String(format: "%+.1f cm/h", rate),
+                      systemImage: rate > 0 ? "arrow.up.right" : "arrow.down.right")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(rate > 0 ? Color.red.opacity(0.8) : Color.green.opacity(0.8))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background((rate > 0 ? Color.red : Color.green).opacity(0.08), in: Capsule())
+            }
+
             if let value = liveStation.lastValue, let threshold = liveStation.alarmThreshold {
                 VStack(spacing: 4) {
                     ProgressView(value: min(value, threshold * 1.5), total: threshold * 1.5)
@@ -156,13 +247,42 @@ struct StationDetailView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+
+            if let mnw = characteristicValues["MNW"],
+               let mhw = characteristicValues["MHW"],
+               let value = liveStation.lastValue,
+               mhw > mnw {
+                let fraction = min(max((value - mnw) / (mhw - mnw), 0), 1)
+                VStack(spacing: 4) {
+                    ProgressView(value: fraction)
+                        .tint(liveStation.alarmLevel.color)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("MNW").font(.caption2)
+                            Text("\(Int(mnw)) cm").font(.caption2.monospacedDigit())
+                        }
+                        .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(levelContextLabel(value: value, mnw: mnw, mhw: mhw))
+                            .font(.caption2.bold())
+                            .foregroundStyle(liveStation.alarmLevel.color)
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 0) {
+                            Text("MHW").font(.caption2)
+                            Text("\(Int(mhw)) cm").font(.caption2.monospacedDigit())
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .pegelCard(tint: liveStation.alarmLevel.isAlarming
+                   ? liveStation.alarmLevel.color.opacity(0.18) : nil)
         .overlay {
             if liveStation.alarmLevel.isAlarming {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: PegelDesign.cardCornerRadius)
                     .stroke(liveStation.alarmLevel.color.opacity(glowPulse ? 0.4 : 0.08), lineWidth: 1)
                     .shadow(color: liveStation.alarmLevel.color.opacity(glowPulse ? 0.3 : 0), radius: 8)
             }
@@ -190,6 +310,14 @@ struct StationDetailView: View {
                 Divider().padding(.leading, 44)
                 infoRow(label: "Koordinaten", icon: "location", value: String(format: "%.4f°, %.4f°", lat, lon))
             }
+            if let mnw = characteristicValues["MNW"] {
+                Divider().padding(.leading, 44)
+                infoRow(label: "MNW", icon: "arrow.down.to.line", value: "\(Int(mnw)) cm")
+            }
+            if let mhw = characteristicValues["MHW"] {
+                Divider().padding(.leading, 44)
+                infoRow(label: "MHW", icon: "arrow.up.to.line", value: "\(Int(mhw)) cm")
+            }
             Divider().padding(.leading, 44)
             infoRow(
                 label: "Datenquelle",
@@ -197,7 +325,7 @@ struct StationDetailView: View {
                 value: HeichwaasserAPI.isLuxembourgStation(liveStation.id) ? "Héichwaasser.lu" : "PegelOnline (WSV)"
             )
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .pegelCard()
     }
 
     private func infoRow(label: String, icon: String, value: String) -> some View {
@@ -239,6 +367,10 @@ struct StationDetailView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+
+                Divider().padding(.leading)
+
+                muteRow
 
                 Divider().padding(.leading)
 
@@ -292,13 +424,52 @@ struct StationDetailView: View {
                     .disabled(!liveStation.alarmEnabled)
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .pegelCard()
             .animation(.easeInOut(duration: 0.3), value: liveStation.enableCustomThreshold)
         } header: {
             Label("Alarm", systemImage: "bell")
         } footer: {
             Text("Stelle dir eine Alarmgrenze, ab der du benachrichtigt wirst.")
         }
+    }
+
+    /// Zeile zum vorübergehenden Stummschalten aller Mitteilungen der Station.
+    /// Die gleiche Stummschaltung ist auch als Schnellaktion in der
+    /// Alarm-Benachrichtigung verfügbar.
+    private var muteRow: some View {
+        HStack {
+            if liveStation.isAlarmMuted, let until = liveStation.alarmMutedUntil {
+                Label {
+                    Text("Stumm bis \(until.formatted(date: .omitted, time: .shortened))")
+                } icon: {
+                    Image(systemName: "bell.slash.fill").foregroundStyle(.orange)
+                }
+                Spacer()
+                Button("Aufheben") {
+                    store.unmuteAlarms(for: station.id)
+                }
+                .font(.subheadline)
+            } else {
+                Label("Vorübergehend stumm", systemImage: "bell.slash")
+                Spacer()
+                Menu {
+                    ForEach(AlarmMuteDuration.allCases, id: \.self) { duration in
+                        Button(duration.label) {
+                            store.muteAlarms(for: station.id, duration: duration.seconds)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Dauer")
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .disabled(!liveStation.alarmEnabled)
     }
 
     private func thresholdLevelRow(for level: AlarmLevel) -> some View {
@@ -336,10 +507,10 @@ struct StationDetailView: View {
         } label: {
             Label("Station entfernen", systemImage: "trash")
                 .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-                .foregroundStyle(.red)
+                .padding(.vertical, 6)
         }
+        .buttonStyle(.glass)
+        .tint(.red)
     }
 
     // MARK: - Threshold Sheet
@@ -356,6 +527,48 @@ struct StationDetailView: View {
                     Text("Alarmschwelle in Zentimetern")
                 } footer: {
                     Text("Du wirst benachrichtigt, wenn der Pegel diese Marke erreicht oder überschreitet.")
+                }
+
+                let mhw = characteristicValues["MHW"]
+                let mnw = characteristicValues["MNW"]
+                if mhw != nil || mnw != nil {
+                    Section {
+                        if let mhw {
+                            Button {
+                                thresholdInput = String(Int(mhw))
+                            } label: {
+                                HStack {
+                                    Text("MHW – Mittleres Hochwasser")
+                                    Spacer()
+                                    Text("\(Int(mhw)) cm").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        if let mhw, let mnw {
+                            Button {
+                                thresholdInput = String(Int(mnw + (mhw - mnw) * 0.8))
+                            } label: {
+                                HStack {
+                                    Text("80 % Richtung MHW")
+                                    Spacer()
+                                    Text("\(Int(mnw + (mhw - mnw) * 0.8)) cm").foregroundStyle(.secondary)
+                                }
+                            }
+                            Button {
+                                thresholdInput = String(Int((mnw + mhw) / 2))
+                            } label: {
+                                HStack {
+                                    Text("Mittelwert (MNW+MHW)/2")
+                                    Spacer()
+                                    Text("\(Int((mnw + mhw) / 2)) cm").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("Vorschläge")
+                    } footer: {
+                        Text("MNW/MHW sind charakteristische Kennwerte dieser Station.")
+                    }
                 }
 
                 if liveStation.alarmThreshold != nil {
@@ -466,6 +679,9 @@ struct StationDetailView: View {
             .padding(.bottom, 8)
 
             if liveStation.sortedCustomAlarms.isEmpty {
+                TipView(alarmCreationTip)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
                 HStack {
                     Spacer()
                     VStack(spacing: 6) {
@@ -474,7 +690,7 @@ struct StationDetailView: View {
                     }
                     Spacer()
                 }
-                .padding(.vertical, 20)
+                .padding(.vertical, 12)
             } else {
                 ForEach(liveStation.sortedCustomAlarms) { alarm in
                     Divider().padding(.leading)
@@ -509,7 +725,7 @@ struct StationDetailView: View {
                 }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .pegelCard()
         .sheet(isPresented: $showAddAlarm) {
             CustomAlarmEditorView(stationID: liveStation.id) { alarm in
                 store.addCustomAlarm(alarm, to: liveStation.id)
@@ -530,7 +746,8 @@ struct StationDetailView: View {
             isLoading: isLoadingHistory,
             threshold: liveStation.alarmThreshold,
             alarmColor: liveStation.alarmLevel.color,
-            liveStation: liveStation
+            liveStation: liveStation,
+            characteristicValues: characteristicValues
         )
     }
 
@@ -540,13 +757,57 @@ struct StationDetailView: View {
         let threshold: Double?
         let alarmColor: Color
         let liveStation: WatchedStation
+        /// MNW/MHW als dezente Kontextlinien — beeinflussen die Y-Skalierung nicht
+        var characteristicValues: [String: Double] = [:]
 
         @State private var selectedDate: Date?
         @State private var visibleDays: Int = 7
+        @State private var showAllThresholds = false
+        @State private var showForecast: Bool = true
+
+        /// 3h-Prognose auf Basis der letzten 6h. Nur bei 24h-Ansicht sinnvoll,
+        /// bei größeren Zeiträumen verschwindet der schmale Prognose-Kegel.
+        private var forecast: LevelForecast.Result? {
+            guard visibleDays == 1 else { return nil }
+            return LevelForecast.forecast(history: history)
+        }
 
         private var visibleHistory: [(timestamp: Date, value: Double)] {
             let cutoff = Calendar.current.date(byAdding: .day, value: -visibleDays, to: Date())!
             return history.filter { $0.timestamp >= cutoff }
+        }
+
+        /// Alle Alarm-/Schwellenlinien der Station in einheitlicher Form.
+        private struct AlarmLine: Identifiable {
+            let id: String
+            let label: String
+            let value: Double
+            let color: Color
+            var emphasized: Bool = false
+        }
+
+        private var alarmLines: [AlarmLine] {
+            var lines: [AlarmLine] = []
+            if let threshold {
+                lines.append(AlarmLine(id: "threshold", label: "Alarmschwelle",
+                                       value: threshold, color: .red, emphasized: true))
+            }
+            if liveStation.enableCustomThreshold {
+                if let v = liveStation.alarmThresholdNormalLevel {
+                    lines.append(AlarmLine(id: "level-normal", label: "Vorwarnung", value: v, color: .yellow))
+                }
+                if let v = liveStation.alarmThresholdWarningLevel {
+                    lines.append(AlarmLine(id: "level-warning", label: "Warnstufe", value: v, color: .orange))
+                }
+                if let v = liveStation.alarmThresholdDangerLevel {
+                    lines.append(AlarmLine(id: "level-danger", label: "Kritisch", value: v, color: .red))
+                }
+            }
+            for alarm in liveStation.sortedCustomAlarms {
+                lines.append(AlarmLine(id: alarm.id.uuidString, label: alarm.name,
+                                       value: alarm.threshold, color: alarm.color))
+            }
+            return lines
         }
 
         private var stats: (min: Double, max: Double, avg: Double)? {
@@ -559,14 +820,16 @@ struct StationDetailView: View {
             )
         }
 
+        /// Kompromiss zwischen Verlauf und Schwellen (geteilte Logik in
+        /// PegelChartScale): Weiter entfernte Schwellen erscheinen als
+        /// Hinweis-Button und lassen sich vollständig einblenden.
         private var chartYDomain: ClosedRange<Double> {
             guard let s = stats else { return 0...100 }
-            let lo = s.min
-            var hi = s.max
-            if let t = threshold { hi = max(hi, t) }
-            let range = max(hi - lo, 1)
-            let padding = max(range * 0.15, 5)
-            return max(0, lo - padding)...(hi + padding)
+            return PegelChartScale.domain(
+                dataMin: s.min, dataMax: s.max,
+                lines: alarmLines.map(\.value),
+                includeAllLines: showAllThresholds
+            )
         }
 
         private func nearest(to date: Date) -> (timestamp: Date, value: Double)? {
@@ -587,6 +850,13 @@ struct StationDetailView: View {
         }
 
         var body: some View {
+            // Einmal pro Body-Auswertung berechnen — Domain/Stats sind O(n)
+            // über die Historie und werden sonst beim Chart-Scrubbing
+            // mehrfach pro Frame neu gerechnet.
+            let domain = chartYDomain
+            let visibleLines = alarmLines.filter { domain.contains($0.value) }
+            let offScaleLines = alarmLines.filter { !domain.contains($0.value) }
+
             VStack(alignment: .leading, spacing: 12) {
                 if let date = selectedDate, let point = nearest(to: date) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -621,6 +891,32 @@ struct StationDetailView: View {
                 .pickerStyle(.segmented)
                 .onChange(of: visibleDays) { selectedDate = nil }
 
+                if let forecast, visibleDays == 1 {
+                    forecastSummary(forecast)
+                }
+
+                if !offScaleLines.isEmpty || showAllThresholds {
+                    Button {
+                        withAnimation(.snappy) { showAllThresholds.toggle() }
+                    } label: {
+                        if showAllThresholds {
+                            Label("Auf Verlauf zoomen", systemImage: "arrow.down.right.and.arrow.up.left")
+                        } else {
+                            let n = offScaleLines.count
+                            Label(
+                                n == 1
+                                    ? "1 Schwelle außerhalb (\(Int(offScaleLines[0].value)) cm) – einblenden"
+                                    : "\(n) Schwellen außerhalb – einblenden",
+                                systemImage: "arrow.up.and.down.text.horizontal"
+                            )
+                        }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                }
+
                 Chart {
                     ForEach(visibleHistory, id: \.timestamp) { point in
                         AreaMark(x: .value("Zeit", point.timestamp), y: .value("Pegel", point.value))
@@ -637,48 +933,54 @@ struct StationDetailView: View {
                             .foregroundStyle(by: .value("Reihe", "Wasserstand"))
                     }
 
-                    if let threshold {
-                        RuleMark(y: .value("Alarmschwelle", threshold))
-                            .foregroundStyle(.red.opacity(0.8))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [6, 3]))
+                    // Prognose — nur 24h-Ansicht, dezent gestrichelt in Alarmfarbe.
+                    if showForecast, let forecast, visibleDays == 1 {
+                        ForEach(forecast.confidence, id: \.timestamp) { band in
+                            AreaMark(
+                                x: .value("Zeit", band.timestamp),
+                                yStart: .value("Unten", band.lower),
+                                yEnd:   .value("Oben",  band.upper)
+                            )
+                            .foregroundStyle(alarmColor.opacity(0.12))
+                            .interpolationMethod(.catmullRom)
+                        }
+                        ForEach(forecast.projected, id: \.timestamp) { p in
+                            LineMark(
+                                x: .value("Zeit", p.timestamp),
+                                y: .value("Pegel", p.value)
+                            )
+                            .foregroundStyle(alarmColor)
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            .interpolationMethod(.catmullRom)
+                            .foregroundStyle(by: .value("Reihe", "Prognose"))
+                        }
+                    }
+
+                    ForEach(visibleLines) { line in
+                        RuleMark(y: .value(line.label, line.value))
+                            .foregroundStyle(line.color.opacity(0.85))
+                            .lineStyle(StrokeStyle(lineWidth: line.emphasized ? 1 : 0.75, dash: [5, 3]))
                             .annotation(position: .top, alignment: .trailing) {
-                                alarmLabel(text: "Alarmschwelle \(Int(threshold)) cm", color: .red)
+                                alarmLabel(text: "\(line.label) \(Int(line.value)) cm", color: line.color)
                             }
                     }
 
-                    if liveStation.enableCustomThreshold {
-                        if let normalLevel = liveStation.alarmThresholdNormalLevel {
-                            RuleMark(y: .value("Vorwarnstufe", normalLevel))
-                                .foregroundStyle(.yellow.opacity(0.9))
-                                .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [5, 3]))
-                                .annotation(position: .top, alignment: .trailing) {
-                                    alarmLabel(text: "Vorwarnung \(Int(normalLevel)) cm", color: .yellow)
-                                }
-                        }
-                        if let warningLevel = liveStation.alarmThresholdWarningLevel {
-                            RuleMark(y: .value("Warnstufe", warningLevel))
-                                .foregroundStyle(.orange.opacity(0.9))
-                                .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [5, 3]))
-                                .annotation(position: .top, alignment: .trailing) {
-                                    alarmLabel(text: "Warnstufe \(Int(warningLevel)) cm", color: .orange)
-                                }
-                        }
-                        if let dangerLevel = liveStation.alarmThresholdDangerLevel {
-                            RuleMark(y: .value("Gefahrenstufe", dangerLevel))
-                                .foregroundStyle(.red.opacity(0.9))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [5, 3]))
-                                .annotation(position: .top, alignment: .trailing) {
-                                    alarmLabel(text: "Kritisch \(Int(dangerLevel)) cm", color: .red)
-                                }
-                        }
+                    // Dezente Kontextlinien (MNW/MHW) — nur wenn sie in der
+                    // aktuellen Y-Domain liegen; sie skalieren das Chart nicht.
+                    if let mnw = characteristicValues["MNW"], domain.contains(mnw) {
+                        RuleMark(y: .value("MNW", mnw))
+                            .foregroundStyle(.gray.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .annotation(position: .top, alignment: .leading) {
+                                alarmLabel(text: "MNW", color: .gray)
+                            }
                     }
-
-                    ForEach(liveStation.sortedCustomAlarms) { alarm in
-                        RuleMark(y: .value(alarm.name, alarm.threshold))
-                            .foregroundStyle(alarm.color.opacity(0.85))
-                            .lineStyle(StrokeStyle(lineWidth: 0.75, dash: [4, 4]))
-                            .annotation(position: .top, alignment: .trailing) {
-                                alarmLabel(text: "\(alarm.name) \(Int(alarm.threshold)) cm", color: alarm.color)
+                    if let mhw = characteristicValues["MHW"], domain.contains(mhw) {
+                        RuleMark(y: .value("MHW", mhw))
+                            .foregroundStyle(.teal.opacity(0.6))
+                            .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .annotation(position: .top, alignment: .leading) {
+                                alarmLabel(text: "MHW", color: .teal)
                             }
                     }
 
@@ -690,9 +992,12 @@ struct StationDetailView: View {
                             .foregroundStyle(alarmColor)
                     }
                 }
-                .chartForegroundStyleScale(["Wasserstand": alarmColor])
+                .chartForegroundStyleScale([
+                    "Wasserstand": alarmColor,
+                    "Prognose": alarmColor.opacity(0.6)
+                ])
                 .chartLegend(position: .top, alignment: .leading, spacing: 8)
-                .chartYScale(domain: chartYDomain)
+                .chartYScale(domain: domain)
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
                         AxisGridLine()
@@ -700,6 +1005,21 @@ struct StationDetailView: View {
                     }
                 }
                 .chartXSelection(value: $selectedDate)
+                .accessibilityLabel("Pegelverlauf")
+                .accessibilityHint(
+                    stats.map {
+                        "Minimum \(Int($0.min)) Zentimeter, Maximum \(Int($0.max)) Zentimeter im sichtbaren Zeitraum"
+                    } ?? ""
+                )
+                .accessibilityChartDescriptor(
+                    LevelChartAXDescriptor(
+                        stationName: liveStation.displayName,
+                        water: liveStation.waterDisplayName,
+                        threshold: threshold,
+                        history: visibleHistory,
+                        stats: stats
+                    )
+                )
                 .frame(height: 220)
                 .overlay {
                     if isLoading {
@@ -734,8 +1054,60 @@ struct StationDetailView: View {
             }
             }
             .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .pegelCard()
+            .clipShape(RoundedRectangle(cornerRadius: PegelDesign.cardCornerRadius))
+        }
+
+        /// Kompakte Zusammenfassung der 3h-Prognose mit Toggle.
+        /// Ohne aussagekräftiges R² (< 0.2) wird nur ein Hinweis angezeigt.
+        @ViewBuilder
+        private func forecastSummary(_ forecast: LevelForecast.Result) -> some View {
+            let hoursAhead = 3.0
+            let projected = forecast.value(hoursAhead: hoursAhead)
+            let delta = projected.map { $0 - (history.last?.value ?? $0) } ?? 0
+            let reliable = forecast.rSquared >= 0.2
+
+            HStack(spacing: 10) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .foregroundStyle(alarmColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    if reliable, let projected {
+                        HStack(spacing: 4) {
+                            Text("Prognose in 3h: \(Int(projected)) cm")
+                                .font(.caption.weight(.semibold))
+                            Text(delta >= 0 ? "+\(Int(delta))" : "\(Int(delta))")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(delta > 0 ? .red : (delta < 0 ? .green : .secondary))
+                        }
+                        Text("Auf Basis der letzten 6 Stunden · Trend \(String(format: "%+.1f", forecast.slopePerHour)) cm/h")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text("Keine offizielle Vorhersage – mathematische Schätzung.")
+                            .font(.caption2)
+                            .foregroundStyle(.quaternary)
+                    } else {
+                        Text("Prognose zu unsicher")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("Die letzten 6 Stunden zeigen keinen klaren Trend.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                Toggle("", isOn: $showForecast)
+                    .labelsHidden()
+                    .controlSize(.mini)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(alarmColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(
+                reliable
+                    ? "Prognose in 3 Stunden \(Int(projected ?? 0)) Zentimeter"
+                    : "Prognose zu unsicher"
+            )
         }
 
         private func statCell(label: String, value: String, color: Color) -> some View {
@@ -756,10 +1128,10 @@ struct StationDetailView: View {
         isLoadingHistory = true
         defer { isLoadingHistory = false }
         do {
-            if HeichwaasserAPI.isLuxembourgStation(station.id) {
-                levelHistory = try await HeichwaasserAPI.shared.fetchHistory(for: station.id)
-            } else {
-                levelHistory = try await PegelOnlineAPI.shared.fetchAllLevels(for: station.id)
+            levelHistory = try await LevelDataProvider.history(for: station.id)
+            if !HeichwaasserAPI.isLuxembourgStation(station.id) {
+                // MNW/MHW sind nur Kontext — Fehler still ignorieren
+                characteristicValues = (try? await PegelOnlineAPI.shared.fetchCharacteristicValues(for: station.id)) ?? [:]
             }
         } catch {
             historyError = error.localizedDescription
@@ -768,5 +1140,85 @@ struct StationDetailView: View {
 }
 
 #Preview {
-    NavigationStack { StationDetailView(station: .preview) }
+    NavigationStack { StationDetailView(station: .previewOldData) }
+}
+
+// MARK: - Accessibility Chart Descriptor
+
+/// Beschreibt das Pegel-Chart für VoiceOver AudioGraphs. Nutzer können damit
+/// den Verlauf als Tonhöhen-Verlauf abspielen und mit Rotor durch Datenpunkte
+/// navigieren.
+private struct LevelChartAXDescriptor: AXChartDescriptorRepresentable {
+    let stationName: String
+    let water: String
+    let threshold: Double?
+    let history: [(timestamp: Date, value: Double)]
+    let stats: (min: Double, max: Double, avg: Double)?
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let values = history.map(\.value)
+        let yMin = values.min() ?? 0
+        let yMax = values.max() ?? 100
+        let yPadding = max((yMax - yMin) * 0.1, 5)
+
+        let xLower = history.first?.timestamp.timeIntervalSince1970 ?? 0
+        let xUpper = history.last?.timestamp.timeIntervalSince1970 ?? (xLower + 1)
+
+        let xAxis = AXNumericDataAxisDescriptor(
+            __title: "Zeit",
+            lowerBound: xLower,
+            upperBound: xUpper,
+            gridlinePositions: []
+        ) { value in
+            Date(timeIntervalSince1970: value)
+                .formatted(.dateTime.weekday(.abbreviated).hour().minute().locale(Locale(identifier: "de_DE")))
+        }
+
+        let yAxis = AXNumericDataAxisDescriptor(
+            __title: "Pegel in Zentimetern",
+            lowerBound: max(0, yMin - yPadding),
+            upperBound: yMax + yPadding,
+            gridlinePositions: []
+        ) { value in
+            "\(Int(value)) Zentimeter"
+        }
+
+        let points = history.map {
+            AXDataPoint(x: $0.timestamp.timeIntervalSince1970, y: $0.value)
+        }
+
+        let series = AXDataSeriesDescriptor(
+            name: "Wasserstand",
+            isContinuous: true,
+            dataPoints: points
+        )
+
+        var summaryParts: [String] = []
+        summaryParts.append("Pegel \(stationName) am \(water)")
+        if let stats {
+            summaryParts.append("Minimum \(Int(stats.min)), Durchschnitt \(Int(stats.avg)), Maximum \(Int(stats.max)) Zentimeter")
+        }
+        if let threshold {
+            summaryParts.append("Alarmschwelle bei \(Int(threshold)) Zentimetern")
+            if let last = history.last?.value {
+                summaryParts.append(last >= threshold
+                    ? "Der aktuelle Wert liegt über der Schwelle"
+                    : "Der aktuelle Wert liegt unter der Schwelle")
+            }
+        }
+
+        return AXChartDescriptor(
+            title: "Pegelverlauf \(stationName)",
+            summary: summaryParts.joined(separator: ". "),
+            xAxis: xAxis,
+            yAxis: yAxis,
+            additionalAxes: [],
+            series: [series]
+        )
+    }
+
+    func updateChartDescriptor(_ descriptor: AXChartDescriptor) {
+        // Bei jedem Refresh wird makeChartDescriptor neu aufgerufen, wenn sich
+        // die Identity ändert. Für dynamische Updates hier nichts zu tun.
+    }
 }

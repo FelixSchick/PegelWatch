@@ -28,8 +28,8 @@ public enum AlarmLevel: String, Codable, CaseIterable {
         switch self {
         case .normal:   return "checkmark.circle.fill"
         case .warning:  return "exclamationmark.triangle.fill"
-        case .danger:   return "exclamationmark.2"
-        case .critical: return "exclamationmark.3"
+        case .danger:   return "exclamationmark.octagon.fill"
+        case .critical: return "exclamationmark.octagon.fill"
         }
     }
 

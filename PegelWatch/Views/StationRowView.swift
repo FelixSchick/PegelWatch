@@ -32,6 +32,28 @@ struct StationRowView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: station.alarmLevel)
+        // VoiceOver: eine zusammenhängende Ansage statt vieler Einzel-Elemente
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        var parts = [station.displayShortname, station.waterDisplayName]
+        if station.noDataAvailable {
+            parts.append("Keine Daten verfügbar")
+        } else if let value = station.lastValue {
+            parts.append("\(Int(value)) Zentimeter")
+            parts.append(station.alarmLevel.label)
+            if let rate = station.riseRateCmPerHour, abs(rate) >= 1 {
+                parts.append(String(format: "%+.0f Zentimeter pro Stunde", rate))
+            } else if let trend = station.trend, abs(trend) > 0.5 {
+                parts.append(trend > 0 ? "steigend" : "fallend")
+            }
+        }
+        if station.isAlarmMuted {
+            parts.append("Alarme stummgeschaltet")
+        }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: - Subviews
@@ -48,14 +70,21 @@ struct StationRowView: View {
                   : station.alarmLevel.systemImage)
                 .foregroundStyle(station.noDataAvailable ? .gray : station.alarmLevel.color)
                 .font(.system(size: 16, weight: .semibold))
-                .symbolEffect(.pulse, isActive: station.alarmLevel == .critical)
+                .symbolEffect(.pulse, isActive: station.alarmLevel.isAlarming)
         }
     }
 
     private var info: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(station.shortname)
-                .font(.headline)
+            HStack(spacing: 5) {
+                Text(station.displayShortname)
+                    .font(.headline)
+                if station.isAlarmMuted {
+                    Image(systemName: "bell.slash.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
             HStack(spacing: 4) {
                 Text(station.waterDisplayName)
                 if let km = station.km {
@@ -92,10 +121,22 @@ struct StationRowView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if let rate = station.riseRateCmPerHour, abs(rate) >= 1 {
+                    Text(String(format: "%+.0f cm/h", rate))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(rate > 0 ? Color.red.opacity(0.75) : Color.green.opacity(0.75))
+                }
+
                 if let updated = station.lastUpdated {
-                    Text(updated, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(station.isStale ? .orange : .accentColor)
+                    Group {
+                        if station.isStale {
+                            Text("Veraltet · ") + Text(updated, style: .relative)
+                        } else {
+                            Text(updated, style: .relative)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(station.isStale ? .orange : .accentColor)
                 }
             } else {
                 ProgressView()

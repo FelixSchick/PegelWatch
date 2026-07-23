@@ -1,5 +1,28 @@
 import Foundation
 
+/// Einheitlicher Einstiegspunkt für Pegel-Abfragen über beide Datenquellen
+/// (PEGELONLINE für DE, Héichwaasser.lu für LU). Wird von App-Detailansicht,
+/// Widget und Siri-Intent gemeinsam genutzt, damit das Quellen-Routing nur
+/// an einer Stelle lebt.
+enum LevelDataProvider {
+
+    static func history(for stationID: String, days: Int = 30) async throws -> [(timestamp: Date, value: Double)] {
+        if HeichwaasserAPI.isLuxembourgStation(stationID) {
+            let full = try await HeichwaasserAPI.shared.fetchHistory(for: stationID)
+            let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 3600)
+            return full.filter { $0.timestamp >= cutoff }
+        }
+        return try await PegelOnlineAPI.shared.fetchAllLevels(for: stationID, days: days)
+    }
+
+    static func currentLevel(for stationID: String) async -> Double? {
+        if HeichwaasserAPI.isLuxembourgStation(stationID) {
+            return await HeichwaasserAPI.shared.fetchLevels(for: [stationID]).levels[stationID]
+        }
+        return await PegelOnlineAPI.shared.fetchLevels(for: [stationID]).levels[stationID]
+    }
+}
+
 actor HeichwaasserAPI {
 
     static let shared = HeichwaasserAPI()

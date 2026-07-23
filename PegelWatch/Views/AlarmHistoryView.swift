@@ -30,6 +30,19 @@ struct AlarmHistoryView: View {
         .toolbar {
             if !history.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
+                    if let url = CSVExporter.alarmHistory(for: station) {
+                        ShareLink(
+                            item: url,
+                            preview: SharePreview(
+                                "Alarmverlauf \(station.displayName).csv",
+                                image: Image(systemName: "bell.and.waves.left.and.right")
+                            )
+                        ) {
+                            Label("Als CSV teilen", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
                         store.clearAlarmHistory(for: station.id)
                     } label: {

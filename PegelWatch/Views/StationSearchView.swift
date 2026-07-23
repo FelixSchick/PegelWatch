@@ -3,31 +3,32 @@ import SwiftUI
 struct StationSearchView: View {
 
     @State private var store = StationStore.shared
-    @State private var allStations: [Station] = []
+    @State private var catalog = StationCatalog.shared
     @State private var searchText: String = ""
     @State private var debouncedSearch: String = ""
-    @State private var isLoading: Bool = false
-    @State private var loadError: String?
     @State private var selectedRegion: String = "Alle"
 
-    // Cached values — recomputed only when their inputs change, not on every render
+    // Derived state — updated asynchronously to avoid blocking the main thread
     @State private var availableWaters: [String] = ["Alle"]
     @State private var filteredStations: [Station] = []
+    @State private var filterTask: Task<Void, Never>?
+
+    // Guidance: 0 = choose filter/search, 1 = tap +, 2 = done
+    @AppStorage("searchGuidanceStep") private var searchGuidanceStep = 0
+    @State private var initialWatchedCount = 0
 
     private static let majorWaters: Set<String> = [
         "RHEIN", "MOSEL", "ELBE", "DONAU", "WESER", "MAIN", "NECKAR",
-         "SAAR", "FULDA",
-        "SAUER", "OUR", "ALZETTE",
+        "SAAR", "FULDA", "SAUER", "OUR", "ALZETTE",
     ]
 
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
-                    loadingView
-                } else if let error = loadError {
+                if let error = catalog.error, catalog.stations.isEmpty {
                     errorView(error)
                 } else {
+                    // List is always shown so the search bar stays interactive during loading
                     searchResultsList
                 }
             }
@@ -38,36 +39,93 @@ struct StationSearchView: View {
                 prompt: "Station oder Gewässer suchen"
             )
             .task {
-                guard allStations.isEmpty else { return }
-                await loadStations()
+                initialWatchedCount = store.watchedStations.count
+                catalog.loadIfNeeded()
+                // Disk cache may already be available — prime derived state immediately
+                if !catalog.stations.isEmpty {
+                    updateAvailableWaters()
+                    updateFilteredStations()
+                }
             }
-            // Debounce: wait 250 ms after the last keystroke before filtering
+            // When catalog data arrives (disk cache or network), refresh derived state
+            .onChange(of: catalog.stations.count) {
+                updateAvailableWaters()
+                updateFilteredStations()
+            }
+            // Debounce: wait 250 ms after last keystroke before filtering
             .onChange(of: searchText) { _, new in
                 Task {
                     try? await Task.sleep(for: .milliseconds(250))
                     guard searchText == new else { return }
                     debouncedSearch = new
                 }
+                if searchGuidanceStep == 0 && !new.isEmpty {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        searchGuidanceStep = 1
+                    }
+                }
+            }
+            .onChange(of: selectedRegion) {
+                updateFilteredStations()
+                if searchGuidanceStep == 0 && selectedRegion != "Alle" {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        searchGuidanceStep = 1
+                    }
+                }
             }
             .onChange(of: debouncedSearch) { updateFilteredStations() }
-            .onChange(of: selectedRegion)  { updateFilteredStations() }
+            // Step 1 → 2: user added their first station this session
+            .onChange(of: store.watchedStations.count) {
+                if store.watchedStations.count > initialWatchedCount && searchGuidanceStep == 1 {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        searchGuidanceStep = 2
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if searchGuidanceStep < 2 && !catalog.stations.isEmpty {
+                    searchGuidanceCard
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: searchGuidanceStep)
+        }
+    }
+
+    // MARK: - Guidance Card
+
+    @ViewBuilder
+    private var searchGuidanceCard: some View {
+        switch searchGuidanceStep {
+        case 0:
+            GuidanceCard(
+                icon: "hand.tap",
+                iconColor: .indigo,
+                message: "Wähle ein Gewässer aus dem Menü oder gib einen Stationsnamen ein.",
+                onDismiss: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        searchGuidanceStep = 2
+                    }
+                }
+            )
+        case 1:
+            GuidanceCard(
+                icon: "plus.circle",
+                iconColor: .green,
+                message: "Tippe auf + neben einer Station, um sie deiner Watchlist hinzuzufügen.",
+                onDismiss: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        searchGuidanceStep = 2
+                    }
+                }
+            )
+        default:
+            EmptyView()
         }
     }
 
     // MARK: - Views
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.4)
-            Text("Lade alle Messstationen…")
-                .foregroundStyle(.secondary)
-                .font(.subheadline)
-            Text("(Deutschland & Luxemburg)")
-                .foregroundStyle(.tertiary)
-                .font(.caption)
-        }
-    }
 
     private func errorView(_ message: String) -> some View {
         ContentUnavailableView {
@@ -76,7 +134,7 @@ struct StationSearchView: View {
             Text(message)
         } actions: {
             Button("Erneut versuchen") {
-                Task { await loadStations() }
+                catalog.reload()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -84,32 +142,46 @@ struct StationSearchView: View {
 
     private var searchResultsList: some View {
         List {
-            if debouncedSearch.isEmpty {
+            // Inline loading row — list stays interactive while the catalog arrives
+            if catalog.isLoading && catalog.stations.isEmpty {
                 Section {
-                    Picker("Gewässer", selection: $selectedRegion) {
-                        ForEach(availableWaters, id: \.self) { Text($0).tag($0) }
+                    HStack(spacing: 12) {
+                        ProgressView().controlSize(.small)
+                        Text("Lade alle Messstationen…")
+                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
                     }
-                    .pickerStyle(.menu)
                 }
             }
 
-            Section(header: Text(resultHeader)) {
-                if selectedRegion != "Alle" && debouncedSearch.isEmpty && filteredStations.allSatisfy({ $0.km != nil }) {
-                    RiverStationView(
-                        stations: filteredStations,
-                        isWatched: { store.isWatching($0) },
-                        onToggle: toggleWatch
-                    )
-                    .frame(height: CGFloat(filteredStations.count) * 80 + 64)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                } else {
-                    ForEach(filteredStations.prefix(200)) { station in
-                        SearchResultRow(
-                            station: station,
-                            isWatched: store.isWatching(station.id),
-                            onToggle: { toggleWatch(station) }
+            if !catalog.stations.isEmpty {
+                if debouncedSearch.isEmpty {
+                    Section {
+                        Picker("Gewässer", selection: $selectedRegion) {
+                            ForEach(availableWaters, id: \.self) { Text($0).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                Section(header: Text(resultHeader)) {
+                    if selectedRegion != "Alle" && debouncedSearch.isEmpty && filteredStations.allSatisfy({ $0.km != nil }) {
+                        RiverStationView(
+                            stations: filteredStations,
+                            isWatched: { store.isWatching($0) },
+                            onToggle: toggleWatch
                         )
+                        .frame(height: CGFloat(filteredStations.count) * 80 + 64)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                    } else {
+                        ForEach(filteredStations.prefix(200)) { station in
+                            SearchResultRow(
+                                station: station,
+                                isWatched: store.isWatching(station.id),
+                                onToggle: { toggleWatch(station) }
+                            )
+                        }
                     }
                 }
             }
@@ -129,62 +201,60 @@ struct StationSearchView: View {
 
     // MARK: - Filtering
 
+    private func updateAvailableWaters() {
+        let allWaterNames = Set(catalog.stations.map { $0.water.shortname })
+        availableWaters = ["Alle"] + allWaterNames.filter { Self.majorWaters.contains($0) }.sorted()
+    }
+
     private func updateFilteredStations() {
-        var result = allStations
+        filterTask?.cancel()
+        let stations = catalog.stations
+        let region = selectedRegion
+        let query = debouncedSearch.uppercased()
+        // Watched rivers surface first — avoids needing to search for familiar waters
+        let watchedWaters = Set(store.watchedStations.map { $0.waterShortname })
 
-        if selectedRegion != "Alle" {
-            result = result.filter { $0.water.shortname == selectedRegion }
+        filterTask = Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                var r = stations
+
+                if region != "Alle" {
+                    r = r.filter { $0.water.shortname == region }
+                }
+
+                if !query.isEmpty {
+                    r = r.filter {
+                        $0.shortname.contains(query) ||
+                        $0.longname.uppercased().contains(query) ||
+                        $0.water.shortname.contains(query) ||
+                        $0.water.longname.uppercased().contains(query) ||
+                        $0.agency.uppercased().contains(query)
+                    }
+                }
+
+                r.sort { a, b in
+                    if region == "Alle" {
+                        // Watched rivers appear first, then alphabetical by water name
+                        let aw = watchedWaters.contains(a.water.shortname)
+                        let bw = watchedWaters.contains(b.water.shortname)
+                        if aw != bw { return aw }
+                        if a.water.shortname != b.water.shortname {
+                            return a.water.shortname < b.water.shortname
+                        }
+                    }
+                    // Within a river, sort by km so stations appear in flow order
+                    return (a.km ?? .infinity) < (b.km ?? .infinity)
+                }
+
+                return r
+            }.value
+
+            guard !Task.isCancelled else { return }
+            filteredStations = result
         }
-
-        if !debouncedSearch.isEmpty {
-            let query = debouncedSearch.uppercased()
-            result = result.filter {
-                $0.shortname.contains(query) ||
-                $0.longname.uppercased().contains(query) ||
-                $0.water.shortname.contains(query) ||
-                $0.water.longname.uppercased().contains(query) ||
-                $0.agency.uppercased().contains(query)
-            }
-        }
-
-        result.sort { $0.km ?? 0.0 < $1.km ?? 0.0 }
-        filteredStations = result
     }
 
     // MARK: - Actions
-
-    private func loadStations() async {
-        isLoading = true
-        loadError = nil
-
-        async let germanFetch = PegelOnlineAPI.shared.fetchAllStations()
-        async let luxFetch = HeichwaasserAPI.shared.fetchAllStations()
-
-        var stations: [Station]
-        do {
-            stations = try await germanFetch
-        } catch {
-            loadError = error.localizedDescription
-            isLoading = false
-            return
-        }
-
-        if let luxStations = try? await luxFetch {
-            stations.append(contentsOf: luxStations)
-        }
-
-        stations.sort {
-            if $0.water.shortname != $1.water.shortname {
-                return $0.water.shortname < $1.water.shortname
-            }
-            return $0.shortname < $1.shortname
-        }
-        allStations = stations
-        let allWaterNames = Set(stations.map { $0.water.shortname })
-        availableWaters = ["Alle"] + allWaterNames.filter { Self.majorWaters.contains($0) }.sorted()
-        updateFilteredStations()
-        isLoading = false
-    }
 
     private func toggleWatch(_ station: Station) {
         if store.isWatching(station.id) {
@@ -228,7 +298,7 @@ struct SearchResultRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(station.shortname)
+                Text(station.displayShortname)
                     .font(.headline)
                 HStack(spacing: 4) {
                     Text(station.water.longname.isEmpty ? station.water.shortname : station.water.longname)

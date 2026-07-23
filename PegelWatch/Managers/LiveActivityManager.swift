@@ -76,7 +76,6 @@ final class LiveActivityManager {
         if let existing = standardActivities[station.id] {
             // Activity already running — just push new state
             await existing.update(content)
-            print("already existing live activity")
         } else {
             // Start fresh
             let attrs = PegelWatchActivityAttributes(
@@ -91,9 +90,10 @@ final class LiveActivityManager {
                     pushType:   nil
                 )
                 standardActivities[station.id] = activity
-                print("[PegelWatch] 🟢 Standard Live Activity started for \(station.displayName)")
             } catch {
-                print("[PegelWatch] ⚠️ Could not start standard Live Activity: \(error.localizedDescription)")
+                #if DEBUG
+                print("[PegelWatch] Could not start standard Live Activity: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -103,7 +103,6 @@ final class LiveActivityManager {
         let policy: ActivityUIDismissalPolicy = recovered ? .after(.now + 4) : .immediate
         await activity.end(nil, dismissalPolicy: policy)
         standardActivities.removeValue(forKey: station.id)
-        print("[PegelWatch] ⛔ Standard Live Activity ended for \(station.displayName)")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -142,9 +141,10 @@ final class LiveActivityManager {
                     pushType:   nil
                 )
                 criticalActivities[station.id] = activity
-                print("[PegelWatch] 🔴 Critical Live Activity started for \(station.displayName)")
             } catch {
-                print("[PegelWatch] ⚠️ Could not start critical Live Activity: \(error.localizedDescription)")
+                #if DEBUG
+                print("[PegelWatch] Could not start critical Live Activity: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -166,6 +166,5 @@ final class LiveActivityManager {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
         criticalActivities.removeValue(forKey: station.id)
-        print("[PegelWatch] ✅ Critical Live Activity ended for \(station.displayName)")
     }
 }

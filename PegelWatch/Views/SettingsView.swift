@@ -6,11 +6,15 @@ struct SettingsView: View {
     @State private var notificationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showResetConfirm: Bool = false
     @State private var store = StationStore.shared
+    @State private var soundSettings = AlarmSoundSettings.shared
+    @State private var previewPlayer = SoundPreviewPlayer.shared
+    @State private var testNotificationSent = false
     
     @State private var tapCount = 0
     @State private var lastTapTime = Date()
     
     @State private var showDevView = false
+    @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
 
     private let refreshIntervalOptions = [5, 10, 15, 30, 60]
 
@@ -18,12 +22,18 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 notificationSection
+                alarmSoundSection
+                alarmVolumeSection
+                onboardingSection
                 aboutSection
                 dangerSection
             }
             .navigationTitle("Einstellungen")
             .task {
                 await checkNotificationStatus()
+            }
+            .onDisappear {
+                previewPlayer.stop()
             }
             .confirmationDialog(
                 "Alle Stationen entfernen?",
@@ -67,6 +77,93 @@ struct SettingsView: View {
                         await checkNotificationStatus()
                     }
                 }
+            }
+        }
+    }
+
+    private var alarmSoundSection: some View {
+        Section {
+            Picker(selection: $soundSettings.alarmSound) {
+                ForEach(AlarmSound.allCases) { sound in
+                    Label(sound.displayName, systemImage: sound.systemImage)
+                        .tag(sound)
+                }
+            } label: {
+                Label("Aktueller Ton", systemImage: "music.note")
+            }
+            .pickerStyle(.navigationLink)
+
+            Button {
+                previewPlayer.toggle(soundSettings.alarmSound,
+                                     volume: soundSettings.criticalVolume)
+            } label: {
+                Label(
+                    previewPlayer.playingSound == soundSettings.alarmSound
+                        ? "Vorschau stoppen"
+                        : "Ton vorhören",
+                    systemImage: previewPlayer.playingSound == soundSettings.alarmSound
+                        ? "stop.circle.fill" : "play.circle.fill"
+                )
+            }
+            .disabled(soundSettings.alarmSound.isSilent)
+        } header: {
+            Label("Alarmton", systemImage: "speaker.wave.2")
+        } footer: {
+            Text("Der Ton wird für Pegel-Alarme verwendet. Eigene Alarme können in ihrer Bearbeitung einen abweichenden Ton erhalten.")
+        }
+    }
+
+    private var alarmVolumeSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Lautstärke: \(Int(soundSettings.criticalVolume * 100)) %")
+                    .font(.subheadline)
+                HStack(spacing: 12) {
+                    Image(systemName: "speaker.fill").foregroundStyle(.secondary)
+                    Slider(value: $soundSettings.criticalVolume, in: 0.1...1.0, step: 0.05) { editing in
+                        if !editing {
+                            previewPlayer.play(soundSettings.alarmSound,
+                                               volume: soundSettings.criticalVolume)
+                        }
+                    }
+                    Image(systemName: "speaker.wave.3.fill").foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Alarm-Lautstärke")
+            .accessibilityValue("\(Int(soundSettings.criticalVolume * 100)) Prozent")
+
+            Toggle(isOn: $soundSettings.useCriticalAlerts) {
+                Label("Stummmodus & Fokus durchbrechen", systemImage: "exclamationmark.triangle.fill")
+            }
+
+            Button {
+                NotificationManager.shared.sendTestAlarmNotification()
+                testNotificationSent = true
+                Task {
+                    // Solange gesperrt lassen, bis die Testmitteilung (5 s)
+                    // zugestellt ist — erneutes Tippen würde sie ersetzen.
+                    try? await Task.sleep(for: .seconds(5))
+                    testNotificationSent = false
+                }
+            } label: {
+                Label(testNotificationSent ? "Wird in 5 s zugestellt …" : "Testbenachrichtigung senden",
+                      systemImage: "bell.and.waves.left.and.right")
+            }
+            .disabled(testNotificationSent || notificationStatus != .authorized)
+        } header: {
+            Label("Lautstärke & Dringlichkeit", systemImage: "speaker.wave.3")
+        } footer: {
+            Text("Wenn aktiviert, ertönt der Alarm auch bei Stummmodus und Fokusmodi – unabhängig von der Systemlautstärke. Beim ersten Aktivieren fragt iOS separat nach der Berechtigung für kritische Warnungen. Empfohlen für alle, die bei Hochwassergefahr sofort reagieren müssen.")
+        }
+    }
+
+    private var onboardingSection: some View {
+        Section {
+            Button {
+                hasSeenTutorial = false
+            } label: {
+                Label("Einführung erneut anzeigen", systemImage: "graduationcap")
             }
         }
     }
