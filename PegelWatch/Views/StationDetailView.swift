@@ -1027,9 +1027,16 @@ struct StationDetailView: View {
                             .fill(.regularMaterial)
                         ProgressView()
                     } else if visibleHistory.isEmpty && !history.isEmpty {
-                        Text("Keine Daten für diesen Zeitraum")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        VStack(spacing: 4) {
+                            Text("Keine Daten für diesen Zeitraum")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if let lastUpdate = history.last?.timestamp {
+                                Text("Letzte Messung: \(lastUpdate.formatted(.dateTime.day().month().year().hour().minute().locale(Locale(identifier: "de_DE"))))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
                     } else if history.isEmpty && !isLoading {
                         VStack(spacing: 6) {
                             Image(systemName: "chart.xyaxis.line")

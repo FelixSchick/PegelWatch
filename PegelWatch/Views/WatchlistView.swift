@@ -3,6 +3,10 @@ import TipKit
 
 struct WatchlistView: View {
 
+    /// Collection-ID für die flache Liste (keine Gruppen) bzw. für die
+    /// "Nicht zugeordnet"-Section, wenn Gruppen existieren.
+    private static let ungroupedCollectionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     @State private var store = StationStore.shared
     @State private var snapshotStore = SnapshotStore.shared
     @State private var router = AppRouter.shared
@@ -139,6 +143,9 @@ struct WatchlistView: View {
                         store.remove(id: displayedStations[idx].id)
                     }
                 }
+                .reorderableRows(collectionID: Self.ungroupedCollectionID, sortLocked: sortBySeverity) { indexSet, newOffset in
+                    handleMove(in: displayedStations, indexSet: indexSet, newOffset: newOffset)
+                }
             } else {
                 groupedListContent
             }
@@ -162,6 +169,17 @@ struct WatchlistView: View {
         .navigationDestination(for: WatchedStation.self) { station in
             StationDetailView(station: station)
         }
+        .reorderContainerIfAvailable { sources, targetID, collectionID in
+            let groupTarget: StationStore.GroupTarget
+            if store.groups.isEmpty {
+                groupTarget = .unchanged
+            } else if collectionID == Self.ungroupedCollectionID {
+                groupTarget = .group(nil)
+            } else {
+                groupTarget = .group(collectionID)
+            }
+            store.moveWatchedStations(sources, before: targetID, toGroup: groupTarget)
+        }
         .animation(.default, value: store.watchedStations)
     }
 
@@ -181,6 +199,9 @@ struct WatchlistView: View {
                         for idx in indexSet {
                             store.remove(id: stations[idx].id)
                         }
+                    }
+                    .reorderableRows(collectionID: group.id, sortLocked: sortBySeverity) { indexSet, newOffset in
+                        handleMove(in: stations, indexSet: indexSet, newOffset: newOffset)
                     }
                 } header: {
                     Label(group.name, systemImage: group.icon)
@@ -202,10 +223,27 @@ struct WatchlistView: View {
                         store.remove(id: ungrouped[idx].id)
                     }
                 }
+                .reorderableRows(collectionID: Self.ungroupedCollectionID, sortLocked: sortBySeverity) { indexSet, newOffset in
+                    handleMove(in: ungrouped, indexSet: indexSet, newOffset: newOffset)
+                }
             } header: {
                 Text("Nicht zugeordnet")
             }
         }
+    }
+
+    // MARK: - Reordering
+
+    /// Übersetzt eine `onMove`-Geste (iOS-Fallback vor `.reorderable()`) in einen
+    /// Aufruf von `StationStore.moveWatchedStations`, bezogen auf die angezeigte
+    /// Teilmenge `subset` (eine Section oder die flache Liste).
+    private func handleMove(in subset: [WatchedStation], indexSet: IndexSet, newOffset: Int) {
+        var ids = subset.map(\.id)
+        let movedIDs = indexSet.map { ids[$0] }
+        ids.move(fromOffsets: indexSet, toOffset: newOffset)
+        guard let anchor = movedIDs.first, let newPos = ids.firstIndex(of: anchor) else { return }
+        let targetID: String? = (newPos + movedIDs.count) < ids.count ? ids[newPos + movedIDs.count] : nil
+        store.moveWatchedStations(movedIDs, before: targetID)
     }
 
     private var emptyState: some View {
@@ -287,4 +325,51 @@ struct WatchlistView: View {
 
 #Preview {
     WatchlistView()
+}
+
+// MARK: - Reorder availability helpers
+//
+// SwiftUI's `.reorderable()` / `.reorderContainer(for:in:)` (drag-to-reorder in any
+// container, including List sections) require iOS 27. The deployment target here is
+// iOS 26.2/26.4, so both call sites fall back to the classic `.onMove(perform:)` on
+// older OS versions instead of dropping the feature.
+
+private extension DynamicViewContent {
+    /// Marks rows as drag-to-reorder on iOS 27+, or falls back to `.onMove` below it.
+    /// Reordering is entirely disabled while `sortLocked` is true, since the displayed
+    /// order wouldn't match the stored order in that case.
+    @ViewBuilder
+    func reorderableRows(collectionID: UUID, sortLocked: Bool, fallbackMove: @escaping (IndexSet, Int) -> Void) -> some View {
+        if sortLocked {
+            self
+        } else if #available(iOS 27.0, *) {
+            self.reorderable(collectionID: collectionID)
+        } else {
+            self.onMove(perform: fallbackMove)
+        }
+    }
+}
+
+private extension View {
+    /// Attaches the iOS 27 multi-collection reorder container to a `List`, translating
+    /// the resulting `ReorderDifference` into plain `(sources, targetID, collectionID)`
+    /// values so the call site doesn't need to import the gated SwiftUI types itself.
+    /// A no-op on iOS 26.x.
+    @ViewBuilder
+    func reorderContainerIfAvailable(
+        _ move: @escaping (_ sources: [String], _ targetID: String?, _ collectionID: UUID) -> Void
+    ) -> some View {
+        if #available(iOS 27.0, *) {
+            self.reorderContainer(for: WatchedStation.self, in: UUID.self) { difference in
+                let targetID: String?
+                switch difference.destination.position {
+                case .before(let id): targetID = id
+                case .end: targetID = nil
+                }
+                move(difference.sources, targetID, difference.destination.collectionID)
+            }
+        } else {
+            self
+        }
+    }
 }

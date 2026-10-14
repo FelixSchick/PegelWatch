@@ -1,0 +1,9 @@
+{
+  "id" : "475e4f10-5440-41cc-8bb7-4ba58eafefea",
+  "targets" : [
+    {
+      "id" : "B46FF723-7C18-44CF-81D5-37661A1177EC",
+      "name" : "PegelWatch"
+    }
+  ]
+}
