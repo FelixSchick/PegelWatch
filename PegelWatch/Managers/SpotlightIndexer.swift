@@ -1,3 +1,4 @@
+import AppIntents
 import CoreSpotlight
 
 /// Indexiert die beobachteten Stationen als App-Intents-Entities (`StationEntity`)

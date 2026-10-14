@@ -384,6 +384,14 @@ struct MediumWidgetView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        if #available(iOS 27.0, *) {
+                            Button(intent: RunSystemShortcutIntent()) {
+                                Image(systemName: "bolt")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
 
                     Text(HeichwaasserAPI.isLuxembourgStation(station.id) ? "Héichwaasser.lu" : "PegelOnline")

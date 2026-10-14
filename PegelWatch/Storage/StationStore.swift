@@ -56,6 +56,45 @@ class StationStore {
         watchedStations.contains { $0.id == stationID }
     }
 
+    // MARK: - Reordering
+
+    enum GroupTarget {
+        case unchanged
+        case group(UUID?)
+    }
+
+    /// Reordnet die angegebenen Stationen so, dass sie direkt vor `targetID` stehen
+    /// (oder ans Ende, wenn `targetID` nil ist). Optional wird dabei auch die
+    /// Gruppenzugehörigkeit gesetzt — `.group(nil)` entfernt sie aus allen Gruppen,
+    /// `.group(id)` fügt sie der betreffenden Gruppe hinzu.
+    func moveWatchedStations(_ ids: [String], before targetID: String?, toGroup target: GroupTarget = .unchanged) {
+        guard !ids.isEmpty else { return }
+        let movingSet = Set(ids)
+
+        var updated = watchedStations
+        var moved: [WatchedStation] = []
+        updated.removeAll { station in
+            guard movingSet.contains(station.id) else { return false }
+            moved.append(station)
+            return true
+        }
+        if let targetID, let idx = updated.firstIndex(where: { $0.id == targetID }) {
+            updated.insert(contentsOf: moved, at: idx)
+        } else {
+            updated.append(contentsOf: moved)
+        }
+        watchedStations = updated
+
+        if case .group(let groupID) = target {
+            for idx in groups.indices {
+                groups[idx].stationIDs.removeAll { movingSet.contains($0) }
+            }
+            if let groupID, let gIdx = groups.firstIndex(where: { $0.id == groupID }) {
+                groups[gIdx].stationIDs.append(contentsOf: ids.filter { !groups[gIdx].stationIDs.contains($0) })
+            }
+        }
+    }
+
     // MARK: - Groups
 
     func addGroup(_ group: StationGroup) {
