@@ -1,21 +1,24 @@
 import CoreSpotlight
-import UniformTypeIdentifiers
 
-/// Indexiert die beobachteten Stationen in Spotlight, damit z.B. die Suche
-/// nach "Iffezheim" direkt die Detailansicht öffnet
-/// (Deep-Link via CSSearchableItemActionType in ContentView).
+/// Indexiert die beobachteten Stationen als App-Intents-Entities (`StationEntity`)
+/// in Spotlight, damit z. B. die Suche nach "Iffezheim" das Entity liefert und
+/// `OpenStationIntent` beim Antippen direkt die Detailansicht öffnet.
 enum SpotlightIndexer {
 
-    private static let domain = "de.felixschick.pegelwatch.stations"
+    /// Domain der alten, Item-basierten Indexierung (vor der Umstellung auf
+    /// `IndexedEntity`) — wird einmalig geräumt, damit keine Dubletten entstehen.
+    private static let legacyDomain = "de.felixschick.pegelwatch.stations"
 
     /// Kompletter Neuaufbau des Index — nur beim App-Start zur Reconciliation.
     static func reindex(_ stations: [WatchedStation]) {
         Task.detached(priority: .utility) {
             try? await CSSearchableIndex.default()
-                .deleteSearchableItems(withDomainIdentifiers: [domain])
+                .deleteSearchableItems(withDomainIdentifiers: [legacyDomain])
+            try? await CSSearchableIndex.default()
+                .deleteAppEntities(ofType: StationEntity.self)
             guard !stations.isEmpty else { return }
             try? await CSSearchableIndex.default()
-                .indexSearchableItems(stations.map(item(for:)))
+                .indexAppEntities(stations.map(StationEntity.init(from:)))
         }
     }
 
@@ -23,7 +26,7 @@ enum SpotlightIndexer {
     static func index(_ station: WatchedStation) {
         Task.detached(priority: .utility) {
             try? await CSSearchableIndex.default()
-                .indexSearchableItems([item(for: station)])
+                .indexAppEntities([StationEntity(from: station)])
         }
     }
 
@@ -31,21 +34,7 @@ enum SpotlightIndexer {
     static func remove(id: String) {
         Task.detached(priority: .utility) {
             try? await CSSearchableIndex.default()
-                .deleteSearchableItems(withIdentifiers: [id])
+                .deleteAppEntities(identifiedBy: [id], ofType: StationEntity.self)
         }
-    }
-
-    private static func item(for station: WatchedStation) -> CSSearchableItem {
-        let attributes = CSSearchableItemAttributeSet(contentType: .item)
-        attributes.title = station.displayName
-        attributes.contentDescription =
-            "\(station.waterDisplayName) – Pegelstand & Alarme in PegelWatch"
-        attributes.keywords = ["Pegel", "Wasserstand", "Hochwasser",
-                               station.displayName, station.waterDisplayName]
-        return CSSearchableItem(
-            uniqueIdentifier: station.id,
-            domainIdentifier: domain,
-            attributeSet: attributes
-        )
     }
 }
