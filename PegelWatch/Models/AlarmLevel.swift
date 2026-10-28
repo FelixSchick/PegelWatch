@@ -29,8 +29,15 @@ public enum AlarmLevel: String, Codable, CaseIterable {
         case .normal:   return "checkmark.circle.fill"
         case .warning:  return "exclamationmark.triangle.fill"
         case .danger:   return "exclamationmark.octagon.fill"
-        case .critical: return "exclamationmark.octagon.fill"
+        // Eigene Form statt nur Rot, damit sich „Kritisch“ auch ohne
+        // Farbwahrnehmung von der orangen „Warnstufe“ unterscheidet.
+        case .critical: return "light.beacon.max.fill"
         }
+    }
+
+    /// Rangfolge für „wird es schlimmer?“ (normal = 0 … critical = 3).
+    var severity: Int {
+        Self.allCases.firstIndex(of: self) ?? 0
     }
 
     var isAlarming: Bool {

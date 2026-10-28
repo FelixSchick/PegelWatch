@@ -9,28 +9,13 @@ struct StationRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Colored accent strip for alarming states
-            RoundedRectangle(cornerRadius: 3)
-                .fill(isAlarming ? station.alarmLevel.color : Color.clear)
-                .frame(width: 4)
-                .padding(.vertical, 4)
-                .padding(.trailing, 12)
-
+        HStack(spacing: 12) {
             alarmIndicator
-                .padding(.trailing, 12)
-
             info
-            Spacer()
+            Spacer(minLength: 8)
             levelDisplay
         }
-        .padding(.vertical, 8)
-        .background {
-            if isAlarming {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(station.alarmLevel.color.opacity(0.06))
-            }
-        }
+        .padding(.vertical, 4)
         .animation(.easeInOut(duration: 0.25), value: station.alarmLevel)
         // VoiceOver: eine zusammenhängende Ansage statt vieler Einzel-Elemente
         .accessibilityElement(children: .ignore)
@@ -58,105 +43,110 @@ struct StationRowView: View {
 
     // MARK: - Subviews
 
+    /// Statussymbol: Farbe *und* Form tragen die Alarmstufe, damit sie auch
+    /// ohne Farbwahrnehmung unterscheidbar bleibt.
     private var alarmIndicator: some View {
-        ZStack {
-            Circle()
-                .fill(station.noDataAvailable
-                      ? Color.gray.opacity(0.12)
-                      : station.alarmLevel.color.opacity(isAlarming ? 0.2 : 0.12))
-                .frame(width: 38, height: 38)
-            Image(systemName: station.noDataAvailable
-                  ? "antenna.radiowaves.left.and.right.slash"
-                  : station.alarmLevel.systemImage)
-                .foregroundStyle(station.noDataAvailable ? .gray : station.alarmLevel.color)
-                .font(.system(size: 16, weight: .semibold))
-                .symbolEffect(.pulse, isActive: station.alarmLevel.isAlarming)
-        }
+        Image(systemName: station.noDataAvailable
+              ? "antenna.radiowaves.left.and.right.slash"
+              : station.alarmLevel.systemImage)
+            .font(.title2)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(station.noDataAvailable ? .secondary : station.alarmLevel.color)
+            // Einmaliges Hüpfen beim Stufenwechsel statt Dauerpulsieren in der Liste
+            .symbolEffect(.bounce, value: station.alarmLevel)
+            .frame(width: 32)
     }
 
     private var info: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 Text(station.displayShortname)
                     .font(.headline)
+                    .lineLimit(1)
                 if station.isAlarmMuted {
                     Image(systemName: "bell.slash.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 }
             }
             HStack(spacing: 4) {
+                // Alarmstufe als Text, nicht nur als Farbe des Symbols
+                if isAlarming {
+                    Text(station.alarmLevel.label)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text("·")
+                }
                 Text(station.waterDisplayName)
                 if let km = station.km {
-                    Text("·").foregroundStyle(.tertiary)
-                    Text("km \(Int(km))")
+                    Text("· km \(Int(km))")
                 }
             }
-            .font(.caption)
+            .font(.subheadline)
             .foregroundStyle(.secondary)
+            .lineLimit(1)
         }
     }
 
+    @ViewBuilder
     private var levelDisplay: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            if station.noDataAvailable {
-                Label("Keine Daten", systemImage: "antenna.radiowaves.left.and.right.slash")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.quaternary, in: Capsule())
-            } else if let value = station.lastValue {
+        if station.noDataAvailable {
+            Text("Keine Daten")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else if let value = station.lastValue {
+            VStack(alignment: .trailing, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(Int(value)) cm")
-                        .font(.title3.bold().monospacedDigit())
-                        .foregroundStyle(isAlarming ? station.alarmLevel.color : .primary)
-                        .contentTransition(.numericText())
                     trendArrow
-                }
-
-                if let threshold = station.alarmThreshold {
-                    Text("/ \(Int(threshold)) cm")
-                        .font(.caption2)
+                    Text("\(Int(value))")
+                        .font(.title3.weight(.semibold).monospacedDigit())
+                        // Orange/Gelb erreichen als Textfarbe keinen ausreichenden
+                        // Kontrast; die Alarmfarbe trägt das Symbol links.
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                    Text("cm")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-
-                if let rate = station.riseRateCmPerHour, abs(rate) >= 1 {
-                    Text(String(format: "%+.0f cm/h", rate))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(rate > 0 ? Color.red.opacity(0.75) : Color.green.opacity(0.75))
-                }
-
-                if let updated = station.lastUpdated {
-                    Group {
-                        if station.isStale {
-                            Text("Veraltet · ") + Text(updated, style: .relative)
-                        } else {
-                            Text(updated, style: .relative)
-                        }
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(station.isStale ? .orange : .accentColor)
-                }
-            } else {
-                ProgressView()
-                    .scaleEffect(0.7)
+                detailLine
             }
+        } else {
+            ProgressView()
+                .controlSize(.small)
+        }
+    }
+
+    /// Zweite Zeile rechts: Steig-/Fallrate, sonst Alter des Messwerts.
+    @ViewBuilder
+    private var detailLine: some View {
+        if station.isStale, let updated = station.lastUpdated {
+            Label {
+                RelativeTimeText(date: updated)
+            } icon: {
+                Image(systemName: "clock.badge.exclamationmark")
+            }
+            .labelStyle(.titleAndIcon)
+            .font(.caption)
+            .foregroundStyle(.orange)
+        } else if let rate = station.riseRateCmPerHour, abs(rate) >= 1 {
+            Text(String(format: "%+.0f cm/h", rate))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        } else if let updated = station.lastUpdated {
+            RelativeTimeText(date: updated)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
     private var trendArrow: some View {
-        if let trend = station.trend {
-            if trend > 0.5 {
-                Image(systemName: "arrow.up")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.red.opacity(0.8))
-            } else if trend < -0.5 {
-                Image(systemName: "arrow.down")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.green.opacity(0.8))
-            }
+        if let trend = station.trend, abs(trend) > 0.5 {
+            Image(systemName: trend > 0 ? "arrow.up.right" : "arrow.down.right")
+                .font(.caption.weight(.bold))
+                // Rot/Grün bleiben den Alarmstufen vorbehalten
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
         }
     }
 }

@@ -10,13 +10,16 @@ struct WatchlistView: View {
     @State private var store = StationStore.shared
     @State private var snapshotStore = SnapshotStore.shared
     @State private var router = AppRouter.shared
+    @Environment(\.undoManager) private var undoManager
     @State private var path: [WatchedStation] = []
     @State private var sortBySeverity = false
     @State private var showingSnapshotBuilder = false
     @State private var showingSavedSnapshots = false
     @State private var showingGroupManager = false
-    @State private var widgetTip = WidgetTip()
-    @State private var groupTip = GroupCreationTip()
+    @State private var tips = TipGroup(.ordered) {
+        WidgetTip()
+        GroupCreationTip()
+    }
 
     private var displayedStations: [WatchedStation] {
         applySorting(store.watchedStations)
@@ -65,16 +68,10 @@ struct WatchlistView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                TipView(widgetTip)
+                // Immer nur einen Tipp gleichzeitig zeigen
+                TipView(tips.currentTip)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                
-                
-                TipView(groupTip)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                
-
             }
             .sheet(isPresented: $showingSnapshotBuilder) {
                 SectorSnapshotView(allStations: store.watchedStations)
@@ -128,19 +125,21 @@ struct WatchlistView: View {
                     Label(error, systemImage: "wifi.exclamationmark")
                         .foregroundStyle(.secondary)
                         .font(.footnote)
+                    Button("Erneut versuchen") {
+                        Task { await store.refreshAll() }
+                    }
+                    .font(.footnote)
+                    .disabled(store.isRefreshing)
                 }
             }
 
             if store.groups.isEmpty {
                 ForEach(displayedStations) { station in
-                    NavigationLink(value: station) {
-                        StationRowView(station: station)
-                    }
-                    .opacity(station.noDataAvailable ? 0.6 : 1.0)
+                    stationRow(station)
                 }
                 .onDelete { indexSet in
                     for idx in indexSet {
-                        store.remove(id: displayedStations[idx].id)
+                        store.remove(id: displayedStations[idx].id, undoManager: undoManager)
                     }
                 }
                 .reorderableRows(collectionID: Self.ungroupedCollectionID, sortLocked: sortBySeverity) { indexSet, newOffset in
@@ -154,12 +153,13 @@ struct WatchlistView: View {
                 Section {
                     HStack {
                         Spacer()
+                        // Häkchen nur, wenn der letzte Versuch geklappt hat
                         Label(
                             "Aktualisiert \(refreshed.formatted(.relative(presentation: .named)))",
-                            systemImage: "checkmark.circle"
+                            systemImage: store.lastError == nil ? "checkmark.circle" : "exclamationmark.circle"
                         )
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         Spacer()
                     }
                 }
@@ -190,14 +190,11 @@ struct WatchlistView: View {
             if !stations.isEmpty {
                 Section {
                     ForEach(stations) { station in
-                        NavigationLink(value: station) {
-                            StationRowView(station: station)
-                        }
-                        .opacity(station.noDataAvailable ? 0.6 : 1.0)
+                        stationRow(station)
                     }
                     .onDelete { indexSet in
                         for idx in indexSet {
-                            store.remove(id: stations[idx].id)
+                            store.remove(id: stations[idx].id, undoManager: undoManager)
                         }
                     }
                     .reorderableRows(collectionID: group.id, sortLocked: sortBySeverity) { indexSet, newOffset in
@@ -213,14 +210,11 @@ struct WatchlistView: View {
         if !ungrouped.isEmpty {
             Section {
                 ForEach(ungrouped) { station in
-                    NavigationLink(value: station) {
-                        StationRowView(station: station)
-                    }
-                    .opacity(station.noDataAvailable ? 0.6 : 1.0)
+                    stationRow(station)
                 }
                 .onDelete { indexSet in
                     for idx in indexSet {
-                        store.remove(id: ungrouped[idx].id)
+                        store.remove(id: ungrouped[idx].id, undoManager: undoManager)
                     }
                 }
                 .reorderableRows(collectionID: Self.ungroupedCollectionID, sortLocked: sortBySeverity) { indexSet, newOffset in
@@ -229,6 +223,51 @@ struct WatchlistView: View {
             } header: {
                 Text("Nicht zugeordnet")
             }
+        }
+    }
+
+    // MARK: - Row
+
+    private func stationRow(_ station: WatchedStation) -> some View {
+        NavigationLink(value: station) {
+            StationRowView(station: station)
+        }
+        .swipeActions(edge: .leading) {
+            muteButton(for: station)
+                .tint(.orange)
+        }
+        .contextMenu {
+            muteButton(for: station)
+            Divider()
+            Button(role: .destructive) {
+                store.remove(id: station.id, undoManager: undoManager)
+            } label: {
+                Label("Entfernen", systemImage: "trash")
+            }
+        } preview: {
+            // Flexible statt fester Breite (iPad, Split View, iPhone Duo)
+            StationRowView(station: station)
+                .padding()
+                .frame(minWidth: 280, idealWidth: 360, maxWidth: 420)
+        }
+    }
+
+    /// Schaltet Mitteilungen der Station für eine Stunde stumm bzw. hebt das auf.
+    @ViewBuilder
+    private func muteButton(for station: WatchedStation) -> some View {
+        if station.isAlarmMuted {
+            Button {
+                store.unmuteAlarms(for: station.id)
+            } label: {
+                Label("Stumm aufheben", systemImage: "bell")
+            }
+        } else {
+            Button {
+                store.muteAlarms(for: station.id, duration: AlarmMuteDuration.oneHour.seconds)
+            } label: {
+                Label("1 Std. stumm", systemImage: "bell.slash")
+            }
+            .disabled(!station.alarmEnabled || station.noDataAvailable)
         }
     }
 
@@ -250,9 +289,9 @@ struct WatchlistView: View {
         ContentUnavailableView {
             Label("Keine Stationen", systemImage: "water.waves.slash")
         } description: {
-            Text("Füge Messstationen über den Reiter \"Hinzufügen\" hinzu.")
+            Text("Suche nach einer Messstation an deinem Fluss, um ihren Pegel hier zu verfolgen.")
         } actions: {
-            Button("Jetzt hinzufügen") {
+            Button("Station suchen") {
                 router.selectedTab = .search
             }
             .buttonStyle(.borderedProminent)
@@ -261,64 +300,44 @@ struct WatchlistView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            if !store.watchedStations.isEmpty {
+        if !store.watchedStations.isEmpty {
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button {
-                        showingSnapshotBuilder = true
+                    Picker(selection: $sortBySeverity.animation()) {
+                        Label("Eigene Reihenfolge", systemImage: "line.3.horizontal").tag(false)
+                        Label("Nach Alarmstufe", systemImage: "exclamationmark.triangle").tag(true)
                     } label: {
-                        Label("Neue Lageübersicht", systemImage: "plus.rectangle")
+                        Text("Sortierung")
                     }
-                    Button {
-                        showingSavedSnapshots = true
-                    } label: {
-                        let count = snapshotStore.snapshots.count
-                        Label(
-                            count == 0 ? "Gespeicherte" : "Gespeicherte (\(count))",
-                            systemImage: "archivebox"
-                        )
+                    .pickerStyle(.inline)
+
+                    Section("Lageübersicht") {
+                        Button {
+                            showingSnapshotBuilder = true
+                        } label: {
+                            Label("Neue Lageübersicht", systemImage: "plus.rectangle.on.rectangle")
+                        }
+                        Button {
+                            showingSavedSnapshots = true
+                        } label: {
+                            Label("Gespeicherte", systemImage: "archivebox")
+                            let count = snapshotStore.snapshots.count
+                            if count > 0 { Text("\(count)") }
+                        }
                     }
-                    Divider()
+
                     Button {
                         showingGroupManager = true
                     } label: {
+                        Label("Gruppen verwalten", systemImage: "folder")
                         let count = store.groups.count
-                        Label(
-                            count == 0 ? "Gruppen verwalten" : "Gruppen (\(count))",
-                            systemImage: "folder"
-                        )
+                        if count > 0 { Text("\(count)") }
                     }
                 } label: {
-                    
-                    Image(systemName: "ellipsis")
+                    Label("Mehr", systemImage: "ellipsis")
                 }
-                .help("Lageübersichten & Gruppen")
+                .accessibilityLabel("Sortierung, Lageübersichten und Gruppen")
             }
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                withAnimation { sortBySeverity.toggle() }
-            } label: {
-                Image(systemName: sortBySeverity ? "exclamationmark.triangle.fill" : "line.3.horizontal.decrease.circle")
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(sortBySeverity ? .orange : .primary)
-            }
-            .help(sortBySeverity ? "Sortierung: nach Alarmstufe" : "Sortierung: Standard")
-            .accessibilityLabel(sortBySeverity ? "Nach Alarmstufe sortiert" : "Standard-Sortierung")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                Task { await store.refreshAll() }
-            } label: {
-                if store.isRefreshing {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .disabled(store.isRefreshing)
-            .accessibilityLabel("Pegel aktualisieren")
         }
     }
 }

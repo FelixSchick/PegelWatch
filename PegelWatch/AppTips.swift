@@ -15,7 +15,7 @@ struct WidgetTip: Tip {
 
 struct AlarmCreationTip: Tip {
     var title: Text { Text("Eigene Alarme anlegen") }
-    var message: Text? { Text("Tippe auf \"+\", um eine eigene Alarmschwelle zu setzen – du wirst benachrichtigt, sobald der Pegel sie überschreitet.") }
+    var message: Text? { Text("Lege mit „Alarm hinzufügen“ weitere Schwellen fest – z. B. für Radweg oder Bootsanleger. Du wirst benachrichtigt, sobald der Pegel sie überschreitet.") }
     var image: Image? { Image(systemName: "bell.badge") }
 }
 

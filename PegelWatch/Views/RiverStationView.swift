@@ -14,12 +14,16 @@ struct RiverStationView: View {
     let isWatched: (String) -> Bool
     let onToggle: (Station) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private let minSpacing: CGFloat = 64
     private let labelWidth: CGFloat = 110
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 1/30)) { timeline in
+            // Bei „Bewegung reduzieren“ steht der Fluss still (HIG: keine
+            // automatische, sich wiederholende Bewegung).
+            TimelineView(.animation(minimumInterval: 1/30, paused: reduceMotion)) { timeline in
                 let phase = CGFloat(timeline.date.timeIntervalSinceReferenceDate * 18)
                 let pts = resolvedPoints(in: geo.size)
 

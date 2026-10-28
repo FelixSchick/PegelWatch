@@ -10,7 +10,10 @@ enum LevelDataProvider {
         if HeichwaasserAPI.isLuxembourgStation(stationID) {
             let full = try await HeichwaasserAPI.shared.fetchHistory(for: stationID)
             let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 3600)
-            return full.filter { $0.timestamp >= cutoff }
+            let filtered = full.filter { $0.timestamp >= cutoff }
+            // Falls die Station seit > `days` Tagen keine neuen Werte mehr liefert,
+            // bleiben sonst auch die zuletzt bekannten Werte außen vor.
+            return filtered.isEmpty ? full : filtered
         }
         return try await PegelOnlineAPI.shared.fetchAllLevels(for: stationID, days: days)
     }
@@ -142,7 +145,20 @@ actor HeichwaasserAPI {
         }
         let endTime = Int(Date().timeIntervalSince1970)
         let startTime = endTime - 30 * 24 * 3600
-        let data = try await get(url: makeURL(path: "/stations/\(hID)/start/\(startTime)/end/\(endTime)"))
+        let windowed = try await fetchMeasurements(
+            url: makeURL(path: "/stations/\(hID)/start/\(startTime)/end/\(endTime)")
+        )
+        if !windowed.isEmpty {
+            return windowed
+        }
+        // Wenn die Station seit > 30 Tagen keine neuen Werte mehr liefert, überlappt
+        // das feste 30-Tage-Fenster nicht mehr mit den letzten Messwerten. Ohne
+        // Zeitfenster liefert die API trotzdem die neuesten verfügbaren Punkte.
+        return try await fetchMeasurements(url: makeURL(path: "/stations/\(hID)"))
+    }
+
+    private func fetchMeasurements(url: URL) async throws -> [(timestamp: Date, value: Double)] {
+        let data = try await get(url: url)
         let station = try JSONDecoder().decode(LuxStation.self, from: data)
 
         return (station.measurements ?? []).compactMap { m in

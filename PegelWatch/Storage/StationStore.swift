@@ -36,8 +36,23 @@ class StationStore {
         watchedStations.append(station)
         SpotlightIndexer.index(station)
         Task {
+            // Erste Station = erster Moment, in dem Alarme Sinn ergeben
+            await NotificationManager.shared.requestPermissionIfNeeded()
             await StationStore.shared.refreshAll()
         }
+    }
+
+    /// Entfernt eine Station und registriert das Wiederherstellen (Schütteln
+    /// zum Widerrufen) inklusive Position, Schwellen, Alarmen und Gruppen.
+    func remove(id: String, undoManager: UndoManager?) {
+        guard let index = watchedStations.firstIndex(where: { $0.id == id }) else { return }
+        let station = watchedStations[index]
+        let groupIDs = groups.filter { $0.stationIDs.contains(id) }.map(\.id)
+        remove(id: id)
+        undoManager?.registerUndo(withTarget: self) { store in
+            store.restore(station, at: index, groupIDs: groupIDs)
+        }
+        undoManager?.setActionName("Station entfernen")
     }
 
     func remove(id: String) {
@@ -50,6 +65,16 @@ class StationStore {
         for idx in groups.indices {
             groups[idx].stationIDs.removeAll { $0 == id }
         }
+    }
+
+    private func restore(_ station: WatchedStation, at index: Int, groupIDs: [UUID]) {
+        guard !watchedStations.contains(where: { $0.id == station.id }) else { return }
+        watchedStations.insert(station, at: min(index, watchedStations.count))
+        for idx in groups.indices where groupIDs.contains(groups[idx].id) {
+            groups[idx].stationIDs.append(station.id)
+        }
+        SpotlightIndexer.index(station)
+        Task { await refreshAll() }
     }
 
     func isWatching(_ stationID: String) -> Bool {
@@ -123,6 +148,9 @@ class StationStore {
     func setThreshold(id: String, threshold: Double?) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == id }) else { return }
         watchedStations[idx].alarmThreshold = threshold
+        if threshold != nil {
+            Task { await NotificationManager.shared.requestPermissionIfNeeded() }
+        }
     }
 
     func setAlarmEnabled(id: String, enabled: Bool) {
@@ -164,6 +192,7 @@ class StationStore {
     func addCustomAlarm(_ alarm: CustomAlarm, to stationID: String) {
         guard let idx = watchedStations.firstIndex(where: { $0.id == stationID }) else { return }
         watchedStations[idx].customAlarms.append(alarm)
+        Task { await NotificationManager.shared.requestPermissionIfNeeded() }
     }
 
     func updateCustomAlarm(_ alarm: CustomAlarm, in stationID: String) {
@@ -189,14 +218,14 @@ class StationStore {
     func refreshAll() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        lastError = nil
-        defer {
-            isRefreshing = false
-            lastRefreshed = Date()
-        }
+        // lastError bleibt während des Ladens stehen, damit der Hinweis nicht flackert.
+        defer { isRefreshing = false }
 
         let ids = watchedStations.map { $0.id }
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty else {
+            lastError = nil
+            return
+        }
 
         let pegelIDs = ids.filter { !HeichwaasserAPI.isLuxembourgStation($0) }
         let luxIDs = ids.filter { HeichwaasserAPI.isLuxembourgStation($0) }
@@ -210,6 +239,19 @@ class StationStore {
         var noDataIDs = pegelData.noDataIDs
         for (id, value) in luxData.levels { levels[id] = value }
         for id in luxData.noDataIDs { noDataIDs.insert(id) }
+
+        // Stationen ohne Wert und ohne „keine Daten“-Antwort sind am Netzwerk
+        // gescheitert. Nur echte Antworten zählen als Aktualisierung — sonst
+        // zeigte die Liste „Aktualisiert gerade eben“, obwohl nichts geladen wurde.
+        let failedIDs = Set(ids).subtracting(levels.keys).subtracting(noDataIDs)
+        if failedIDs.count == ids.count {
+            lastError = "Keine Verbindung zu den Pegeldiensten. Angezeigt werden die zuletzt geladenen Werte."
+            return
+        }
+        lastError = failedIDs.isEmpty
+            ? nil
+            : "\(failedIDs.count) von \(ids.count) Stationen konnten nicht aktualisiert werden."
+        lastRefreshed = Date()
 
         // Build a single mutated snapshot — avoids triggering didSet (persist + widget reload)
         // for every individual field mutation. The single assignment at the end is the only I/O.

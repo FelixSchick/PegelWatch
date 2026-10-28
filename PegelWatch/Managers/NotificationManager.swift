@@ -50,6 +50,18 @@ class NotificationManager {
         }
     }
 
+    /// Fragt nur, solange noch nie gefragt wurde — nach „Nicht erlauben“
+    /// bleibt es beim Hinweis in der App statt erneuter Abfragen.
+    func requestPermissionIfNeeded() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        await requestPermission()
+    }
+
+    var authorizationStatus: UNAuthorizationStatus {
+        get async { await UNUserNotificationCenter.current().notificationSettings().authorizationStatus }
+    }
+
     var hasPermission: Bool {
         get async {
             let settings = await UNUserNotificationCenter.current().notificationSettings()

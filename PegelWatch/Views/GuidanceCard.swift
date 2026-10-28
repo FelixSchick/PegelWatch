@@ -24,11 +24,17 @@ struct GuidanceCard: View {
             Spacer(minLength: 0)
 
             Button(action: onDismiss) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(Color.secondary.opacity(0.6))
+                Label("Hinweis ausblenden", systemImage: "xmark.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    // 44 pt Trefferfläche, optisch bleibt das Symbol klein
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .padding(.top, -12)
+            .padding(.trailing, -12)
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))

@@ -102,7 +102,14 @@ struct PegelWatchWidgetProvider: AppIntentTimelineProvider {
     /// Letzte 24 h Verlauf für die Sparkline; Fehler ergeben eine leere Liste.
     private func fetchDayHistory(for station: WatchedStation?) async -> [(timestamp: Date, value: Double)] {
         guard let station else { return [] }
-        return (try? await LevelDataProvider.history(for: station.id, days: 1)) ?? []
+        let day = (try? await LevelDataProvider.history(for: station.id, days: 1)) ?? []
+        if !day.isEmpty { return day }
+        // Station liefert seit > 24 h nichts mehr: die letzten 24 h vor dem
+        // jüngsten Messwert zeigen statt gar keinen Verlauf.
+        let recent = (try? await LevelDataProvider.history(for: station.id, days: 30)) ?? []
+        guard let last = recent.last?.timestamp else { return [] }
+        let cutoff = last.addingTimeInterval(-24 * 3600)
+        return recent.filter { $0.timestamp >= cutoff }
     }
 }
 
@@ -348,17 +355,17 @@ struct MediumWidgetView: View {
                         Text("Schwelle \(Int(threshold)) cm")
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(station.alarmLevel.color)
-                        
-                        
+                    }
+
+                    // Unabhängig von der Schwelle: Verlauf auch ohne gesetzten Alarm zeigen.
                     if entry.primaryHistory.count >= 2 {
                         SparklineView(
                             history: entry.primaryHistory,
                             color: station.alarmLevel == .normal ? .blue : station.alarmLevel.color,
                             threshold: station.alarmThreshold
                         )
-                        .frame(width: 120, height: 12)
-                    }
-                    
+                        .frame(width: 120)
+                        .frame(minHeight: 24, maxHeight: 48)
                     }
 
                     Spacer(minLength: 0)

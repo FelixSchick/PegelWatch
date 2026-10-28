@@ -173,7 +173,7 @@ struct StationMapView: View {
             GuidanceCard(
                 icon: "mappin.and.ellipse",
                 iconColor: .teal,
-                message: "Zoome in die Karte und tippe auf einen kleinen Punkt, um eine Station zur Watchlist hinzuzufügen.",
+                message: "Zoome in die Karte und tippe auf einen kleinen Punkt, um eine Station zur Merkliste hinzuzufügen.",
                 onDismiss: {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                         mapGuidanceStep = 2
@@ -331,7 +331,7 @@ private struct AddStationSheet: View {
                     Button {
                         onAdd()
                     } label: {
-                        Label("Zur Watchlist hinzufügen", systemImage: "plus.circle.fill")
+                        Label("Zur Merkliste hinzufügen", systemImage: "plus.circle.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)

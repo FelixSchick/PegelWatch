@@ -13,32 +13,30 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $router.selectedTab) {
-            WatchlistView()
-                .tabItem {
-                    Label("Watchlist", systemImage: "water.waves")
-                }
-                .badge(activeAlarmCount)
-                .tag(AppTab.watchlist)
+            Tab("Merkliste", systemImage: "water.waves", value: AppTab.watchlist) {
+                WatchlistView()
+            }
+            .badge(activeAlarmCount)
 
-            StationMapView()
-                .tabItem {
-                    Label("Karte", systemImage: "map")
-                }
-                .tag(AppTab.map)
+            Tab("Karte", systemImage: "map", value: AppTab.map) {
+                StationMapView()
+            }
 
-            StationSearchView()
-                .tabItem {
-                    Label("Hinzufügen", systemImage: "plus.viewfinder")
-                }
-                .tag(AppTab.search)
+            Tab("Einstellungen", systemImage: "gearshape", value: AppTab.settings) {
+                SettingsView()
+            }
 
-            SettingsView()
-                .tabItem {
-                    Label("Einstellungen", systemImage: "gear")
-                }
-                .tag(AppTab.settings)
+            // Suche als eigener Such-Reiter: iOS setzt ihn als separate
+            // Glas-Schaltfläche rechts neben die Tab-Leiste.
+            Tab("Suchen", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+                StationSearchView()
+            }
         }
-        .sheet(isPresented: .constant(!hasSeenTutorial)) {
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .sheet(isPresented: Binding(
+            get: { !hasSeenTutorial },
+            set: { if !$0 { hasSeenTutorial = true } }
+        )) {
             TutorialView(onFinish: {
                 hasSeenTutorial = true
                 if store.watchedStations.isEmpty {

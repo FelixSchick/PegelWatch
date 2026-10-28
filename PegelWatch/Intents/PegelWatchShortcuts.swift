@@ -108,7 +108,7 @@ struct GetWaterLevelIntent: AppIntent {
         guard let watched = StationStore.shared.watchedStations
             .first(where: { $0.id == station.id }) else {
             return .result(
-                dialog: IntentDialog(stringLiteral: "\(station.name) ist nicht mehr in deiner Watchlist."),
+                dialog: IntentDialog(stringLiteral: "\(station.name) ist nicht mehr in deiner Merkliste."),
                 snippetIntent: WaterLevelSnippetIntent(station: station)
             )
         }

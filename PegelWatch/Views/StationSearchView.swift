@@ -113,7 +113,7 @@ struct StationSearchView: View {
             GuidanceCard(
                 icon: "plus.circle",
                 iconColor: .green,
-                message: "Tippe auf + neben einer Station, um sie deiner Watchlist hinzuzufügen.",
+                message: "Tippe auf + neben einer Station, um sie deiner Merkliste hinzuzufügen.",
                 onDismiss: {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                         searchGuidanceStep = 2

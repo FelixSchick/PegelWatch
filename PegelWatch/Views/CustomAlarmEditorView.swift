@@ -14,10 +14,16 @@ struct CustomAlarmEditorView: View {
     var stationID: String
     var existing: CustomAlarm?          // nil = create new
     var onSave: (CustomAlarm) -> Void
+    /// Nur beim Bearbeiten: entfernt den Alarm.
+    var onDelete: (() -> Void)?
 
     @State private var name: String = ""
-    @State private var threshold: Double = 200
     @State private var thresholdText: String = "200"
+
+    /// Gültige Schwelle aus dem Eingabefeld, sonst nil (Speichern deaktiviert).
+    private var threshold: Double? {
+        Double(thresholdText).flatMap { $0 > 0 ? $0 : nil }
+    }
     @State private var selectedHex: String = CustomAlarm.palette[0].hex
     @State private var notificationsEnabled: Bool = true
     @State private var selectedSoundID: String?
@@ -29,13 +35,14 @@ struct CustomAlarmEditorView: View {
             ?? AlarmSoundSettings.shared.alarmSound.rawValue)
     }
 
-    init(stationID: String, existing: CustomAlarm? = nil, onSave: @escaping (CustomAlarm) -> Void) {
+    init(stationID: String, existing: CustomAlarm? = nil,
+         onSave: @escaping (CustomAlarm) -> Void, onDelete: (() -> Void)? = nil) {
         self.stationID = stationID
         self.existing  = existing
         self.onSave    = onSave
+        self.onDelete  = onDelete
         if let a = existing {
             _name                 = State(initialValue: a.name)
-            _threshold            = State(initialValue: a.threshold)
             _thresholdText        = State(initialValue: "\(Int(a.threshold))")
             _selectedHex          = State(initialValue: a.colorHex)
             _notificationsEnabled = State(initialValue: a.notificationsEnabled)
@@ -57,10 +64,6 @@ struct CustomAlarmEditorView: View {
                         TextField("cm", text: $thresholdText)
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .onChange(of: thresholdText) {
-                                if let v = Double(thresholdText) { threshold = v }
-                            }
                         Text("cm")
                             .foregroundStyle(.secondary)
                     }
@@ -71,17 +74,24 @@ struct CustomAlarmEditorView: View {
                 Section("Farbe") {
                     LazyVGrid(columns: Array(repeating: .init(.flexible()), count: 7), spacing: 12) {
                         ForEach(CustomAlarm.palette, id: \.hex) { item in
-                            Circle()
-                                .fill(Color(hex: item.hex) ?? .blue)
-                                .frame(width: 32, height: 32)
-                                .overlay {
-                                    if selectedHex == item.hex {
-                                        Circle()
-                                            .strokeBorder(.white, lineWidth: 2)
-                                            .padding(2)
+                            Button {
+                                selectedHex = item.hex
+                            } label: {
+                                // Auswahl als Ring statt weißem Haken – der wäre auf
+                                // Gelb/Türkis/Grün kaum sichtbar.
+                                Circle()
+                                    .fill(Color(hex: item.hex) ?? .blue)
+                                    .frame(width: 32, height: 32)
+                                    .padding(4)
+                                    .overlay {
+                                        if selectedHex == item.hex {
+                                            Circle().strokeBorder(.primary, lineWidth: 2)
+                                        }
                                     }
-                                }
-                                .onTapGesture { selectedHex = item.hex }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(item.name)
+                            .accessibilityAddTraits(selectedHex == item.hex ? .isSelected : [])
                         }
                     }
                     .padding(.vertical, 4)
@@ -121,9 +131,18 @@ struct CustomAlarmEditorView: View {
                         Text(name.isEmpty ? "Mein Alarm" : name)
                             .font(.subheadline.weight(.semibold))
                         Spacer()
-                        Text("\(Int(threshold)) cm")
+                        Text(threshold.map { "\(Int($0)) cm" } ?? "–")
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                if existing != nil, let onDelete {
+                    Section {
+                        Button("Alarm löschen", role: .destructive) {
+                            onDelete()
+                            dismiss()
+                        }
                     }
                 }
             }
@@ -136,10 +155,11 @@ struct CustomAlarmEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
+                        guard let threshold else { return }
                         var alarm = existing ?? CustomAlarm(
                             name: name, threshold: threshold, colorHex: selectedHex
                         )
-                        alarm.name                 = name.isEmpty ? "Alarm" : name
+                        alarm.name                 = name.trimmingCharacters(in: .whitespaces)
                         alarm.threshold            = threshold
                         alarm.colorHex             = selectedHex
                         alarm.notificationsEnabled = notificationsEnabled
@@ -147,7 +167,7 @@ struct CustomAlarmEditorView: View {
                         onSave(alarm)
                         dismiss()
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || threshold == nil)
                 }
             }
         }
